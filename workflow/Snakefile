@@ -1,0 +1,23 @@
+import pandas as pd
+
+configfile: "config/config.yaml"
+
+# --- 1. Parsing Samples TSV ---
+# Membaca file TSV ke dalam DataFrame pandas
+samples_df = pd.read_csv(config["samples_file"], sep="\t").set_index("sample_id", drop=False)
+SAMPLES = samples_df.index.tolist()
+
+# --- 2. Target Output (Rule All) ---
+rule all:
+    input:
+        # QC Reports
+        expand("results/qc/quast/{sample}/report.html", sample=SAMPLES),
+        expand("results/qc/busco/{sample}/short_summary.txt", sample=SAMPLES),
+        # Annotation Final Output (GFF3)
+        expand("results/annotation/{sample}/braker.gff3", sample=SAMPLES)
+
+# --- 3. Include Modular Rules ---
+include: "rules/assembly.smk"
+include: "rules/qc.smk"
+include: "rules/repeats.smk"
+include: "rules/annotation.smk"
