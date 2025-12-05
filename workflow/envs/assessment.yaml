@@ -1,0 +1,7 @@
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - quast
+  - busco=5.5.0  # Versi stabil
+  - python>=3.8

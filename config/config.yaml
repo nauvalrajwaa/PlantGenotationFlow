@@ -1,17 +1,27 @@
-samples_file: "config/samples.tsv"
+samples: "config/samples.tsv"
 
-# Optimasi: Resource Management
-threads:
-  assembly: 32
-  annotation: 48
+# Input Reads (Pastikan path ini mengarah ke file yang SUDAH BERSIH)
+reads_extension: "fastq.gz" 
 
-# Database Paths (Sesuaikan path ini di server Anda)
-databases:
-  busco_lineage: "embryophyta_odb10" # atau eudicots_odb10, liliopsida_odb10
-  protein_db: "refs/viridiplantae_proteins.fasta" # Untuk BRAKER
-  
-# Container Paths (Untuk reproducibility)
-containers:
-  edta: "docker://jianzuoyi/edta:latest"
-  braker3: "docker://teambraker/braker3:latest"
-  busco: "docker://ezlabgva/busco:v5.4.3_cv1"
+# Referensi
+refs:
+  genome: "refs/reference.fasta"
+  gff: "refs/reference.gff3"
+
+# Parameter Assembly (Flye)
+assembly:
+  mode: "--nano-hq" 
+  genome_size: "400m"
+
+# Parameter Polishing (Medaka)
+medaka:
+  model: "r941_min_hac_g507"
+
+# Parameter Post-Assembly QC (BUSCO)
+# Pilih lineage tanaman: viridiplantae_odb10, embryophyta_odb10, atau poales_odb10 (untuk padi/jagung)
+busco:
+  lineage: "embryophyta_odb10"
+
+# Parameter Repeats
+repeats:
+  species: "rice"

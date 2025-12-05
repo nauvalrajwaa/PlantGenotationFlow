@@ -1,15 +1,42 @@
-rule assembly_hifiasm:
+rule flye_assembly:
     input:
-        reads = lambda wildcards: samples_df.loc[wildcards.sample, "reads_path"]
+        get_reads
     output:
-        gfa = "results/assembly/{sample}/{sample}.bp.p_ctg.gfa",
-        fasta = "results/assembly/{sample}/{sample}.assembly.fa"
-    threads: config["threads"]["assembly"]
-    # MENGGUNAKAN FILE YAML
-    conda: "../envs/assembly.yaml" 
-    log: "logs/assembly/{sample}.log"
+        fasta = "results/assembly/{sample}/assembly.fasta",
+        info  = "results/assembly/{sample}/assembly_info.txt"
+    conda:
+        "../envs/assembly.yaml"
+    params:
+        mode = config["assembly"]["mode"],
+        g_size = config["assembly"]["genome_size"],
+        outdir = directory("results/assembly/{sample}")
+    threads: 32
     shell:
         """
-        hifiasm -o results/assembly/{wildcards.sample}/{wildcards.sample} -t {threads} {input.reads} 2> {log}
-        awk '/^S/{{print ">"$2;print $3}}' {output.gfa} > {output.fasta}
+        flye {params.mode} {input} \
+             --genome-size {params.g_size} \
+             --out-dir {params.outdir} \
+             --threads {threads} \
+             --iterations 1
+        """
+
+rule medaka_polishing:
+    input:
+        draft = "results/assembly/{sample}/assembly.fasta",
+        reads = get_reads
+    output:
+        consensus = "results/medaka/{sample}/consensus.fasta"
+    conda:
+        "../envs/polishing.yaml"
+    params:
+        model = config["medaka"]["model"],
+        outdir = directory("results/medaka/{sample}")
+    threads: 16
+    shell:
+        """
+        medaka_consensus -i {input.reads} \
+                         -d {input.draft} \
+                         -o {params.outdir} \
+                         -t {threads} \
+                         -m {params.model}
         """

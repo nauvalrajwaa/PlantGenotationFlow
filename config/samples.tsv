@@ -1,3 +1,2 @@
-sample_id	platform	reads_path
-indica_rice	hifi	data/raw/rice_hifi.fastq.gz
-japonica_rice	hifi	data/raw/japonica_hifi.fastq.gz
+sample	reads
+padi_01	data/raw_reads_padi.fastq.gz

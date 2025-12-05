@@ -1,7 +1,9 @@
+name: edta_env
 channels:
   - bioconda
   - conda-forge
   - defaults
 dependencies:
-  - nanoplot
-  - filtlong
+  - edta
+  - perl
+  - python>=3.6

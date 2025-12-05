@@ -2,6 +2,6 @@ channels:
   - bioconda
   - conda-forge
 dependencies:
-  - flye
-  - samtools
+  - liftoff
   - minimap2
+  - python>=3.7

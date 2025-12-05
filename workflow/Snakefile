@@ -2,22 +2,27 @@ import pandas as pd
 
 configfile: "config/config.yaml"
 
-# --- 1. Parsing Samples TSV ---
-# Membaca file TSV ke dalam DataFrame pandas
-samples_df = pd.read_csv(config["samples_file"], sep="\t").set_index("sample_id", drop=False)
-SAMPLES = samples_df.index.tolist()
+samples = pd.read_csv(config["samples"], sep="\t").set_index("sample", drop=False)
 
-# --- 2. Target Output (Rule All) ---
+def get_reads(wildcards):
+    return samples.loc[wildcards.sample, "reads"]
+
 rule all:
     input:
-        # QC Reports
-        expand("results/qc/quast/{sample}/report.html", sample=SAMPLES),
-        expand("results/qc/busco/{sample}/short_summary.txt", sample=SAMPLES),
-        # Annotation Final Output (GFF3)
-        expand("results/annotation/{sample}/braker.gff3", sample=SAMPLES)
+        # 1. Assembly & Polishing
+        expand("results/medaka/{sample}/consensus.fasta", sample=samples.index),
+        
+        # 2. Post-Assembly QC (Report Kualitas)
+        expand("results/qc/quast/{sample}/report.html", sample=samples.index),
+        expand("results/qc/busco/{sample}/short_summary.txt", sample=samples.index),
+        
+        # 3. Annotation
+        expand("results/annotation/{sample}.liftoff.gff3", sample=samples.index),
+        
+        # 4. Masked Genome
+        expand("results/repeats/{sample}_masked.fasta", sample=samples.index)
 
-# --- 3. Include Modular Rules ---
 include: "rules/assembly.smk"
-include: "rules/qc.smk"
+include: "rules/assessment.smk" # QC Pasca-Assembly
 include: "rules/repeats.smk"
 include: "rules/annotation.smk"

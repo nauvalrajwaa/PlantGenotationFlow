@@ -1,29 +1,44 @@
 rule edta_masking:
     input:
-        genome = "results/assembly/{sample}/{sample}.assembly.fa"
+        genome = "results/medaka/{sample}/consensus.fasta"
     output:
-        # EDTA menghasilkan file dengan suffix khusus
-        masked = "results/repeats/{sample}/{sample}.assembly.fa.mod.MAKER.masked", 
-        stats = "results/repeats/{sample}/{sample}.assembly.fa.mod.EDTA.TEanno.sum"
+        # EDTA outputnya ada di folder yang sama dengan nama file input
+        masked = "results/repeats/{sample}/consensus.fasta.mod.MAKER.masked",
+        te_lib = "results/repeats/{sample}/consensus.fasta.mod.EDTA.TElib.fa"
+    conda:
+        "../envs/repeats.yaml" 
+    # Jika pakai singularity, uncomment baris bawah dan hapus 'conda':
+    # container: "docker://hopedestruction/edta:latest"
     params:
-        cds = config["databases"]["protein_db"], # Optional: CDS cleaning step
-        species = "Rice" # Ganti dengan "Others" atau spesifik (Maize, Rice, Arabidopsis)
+        # Spesies: Rice, Maize, atau Others. PENTING untuk akurasi.
+        species = "Rice", 
+        outdir = directory("results/repeats/{sample}")
     threads: 32
-    container: config["containers"]["edta"]
-    log: "logs/repeats/{sample}_edta.log"
     shell:
         """
-        # Pindah ke directory output agar file temp EDTA rapi
-        mkdir -p results/repeats/{wildcards.sample}
-        cd results/repeats/{wildcards.sample}
+        # 1. Buat folder output dan copy genome ke sana 
+        # (EDTA suka error kalau output dir beda level)
+        mkdir -p {params.outdir}
+        cp {input.genome} {params.outdir}/genome.fasta
         
-        # Link genome file ke sini agar EDTA bisa akses path relatif
-        ln -s ../../../{input.genome} genome.fa
+        # 2. Masuk ke folder agar output EDTA terkumpul rapi
+        cd {params.outdir}
         
-        EDTA.pl --genome genome.fa \
+        # 3. Jalankan EDTA
+        # --sensitive 1: Pake RepeatModeler (lama tapi akurat)
+        # --anno 1: Langsung lakukan masking (bikin file .masked)
+        EDTA.pl --genome genome.fasta \
                 --species {params.species} \
                 --step all \
                 --sensitive 1 \
                 --anno 1 \
-                --threads {threads} > ../../../{log} 2>&1
+                --threads {threads}
+        
+        # 4. Rename output agar sesuai output rule Snakemake
+        # EDTA output pattern: genome.fasta.mod.MAKER.masked
+        # Kita tidak perlu rename jika di snakefile outputnya sudah match pattern EDTA,
+        # tapi pastikan path-nya benar.
+        
+        # (Opsional) Hapus file intermediate besar jika storage terbatas
+        # rm genome.fasta
         """
