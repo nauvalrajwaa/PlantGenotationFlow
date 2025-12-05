@@ -3,7 +3,8 @@
 # -----------------------------------------------------------------------------
 rule liftoff_annotation:
     input:
-        target    = "results/medaka/{sample}/consensus.fasta",
+        # UPDATE: Input dari Tiara Final
+        target    = "results/final_genome/{sample}_final_clean.fasta",
         ref_fasta = config["refs"]["genome"],
         ref_gff   = config["refs"]["gff"]
     output:
@@ -76,10 +77,11 @@ rule galba_annotation:
 # -----------------------------------------------------------------------------
 # 3. Summary Stats
 # -----------------------------------------------------------------------------
-rule annotation_stats:
+rule galba_annotation:
     input:
-        liftoff = "results/annotation/{sample}_liftoff.gff3",
-        galba   = "results/annotation/{sample}_galba.gff3"
+        # UPDATE: Input dari Tiara Final
+        target   = "results/final_genome/{sample}_final_clean.fasta",
+        ref_prot = config["refs"]["protein"]
     output:
         summary = "results/annotation/{sample}_stats.txt"
     shell:

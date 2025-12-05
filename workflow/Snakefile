@@ -1,45 +1,33 @@
 import pandas as pd
 
-# 1. Load Config
 configfile: "config/config.yaml"
 
-# 2. Load Samples
-# Pastikan samples.tsv memiliki kolom 'sample' dan 'reads'
 samples = pd.read_csv(config["samples"], sep="\t").set_index("sample", drop=False)
 
-# 3. Helper Function
 def get_reads(wildcards):
-    """Mengambil path file reads berdasarkan sample ID."""
     return samples.loc[wildcards.sample, "reads"]
 
-# 4. Target Rules (Rule All)
 rule all:
     input:
-        # --- A. Assembly & Polishing ---
-        # Output akhir dari Medaka
-        expand("results/medaka/{sample}/consensus.fasta", sample=samples.index),
+        # 1. Decontamination Outputs (Cek hasil bersih)
+        expand("results/final_genome/{sample}_final_clean.fasta", sample=samples.index),
+        expand("results/final_genome/{sample}_rejected_ids.txt", sample=samples.index),
         
-        # --- B. Post-Assembly QC ---
-        # Report HTML dari QUAST
+        # 2. QC Outputs (Cek kualitas assembly awal vs akhir jika mau)
         expand("results/qc/quast/{sample}/report.html", sample=samples.index),
-        # Summary text dari BUSCO
         expand("results/qc/busco/{sample}/short_summary.txt", sample=samples.index),
         
-        # --- C. Repeat Masking (EDTA) ---
-        # Perhatikan nama filenya sekarang fix menjadi 'genome.fasta...' 
-        # karena di dalam rule kita me-rename inputnya.
+        # 3. Repeats (EDTA)
         expand("results/repeats/{sample}/genome.fasta.mod.MAKER.masked", sample=samples.index),
         
-        # --- D. Annotation (Hybrid Strategy) ---
-        # 1. Hasil Liftoff (DNA Mapping)
+        # 4. Annotation (Liftoff + Galba + Stats)
         expand("results/annotation/{sample}_liftoff.gff3", sample=samples.index),
-        # 2. Hasil Galba (Protein Mapping)
         expand("results/annotation/{sample}_galba.gff3", sample=samples.index),
-        # 3. Statistik Perbandingan (Liftoff vs Galba)
         expand("results/annotation/{sample}_stats.txt", sample=samples.index)
 
-# 5. Include Rules
+# Load Rules
 include: "rules/assembly.smk"
 include: "rules/assessment.smk"
+include: "rules/decontamination.smk" # <-- New Rule File
 include: "rules/repeats.smk"
 include: "rules/annotation.smk"

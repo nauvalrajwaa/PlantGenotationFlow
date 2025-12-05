@@ -4,11 +4,10 @@
 
 rule edta_masking:
     input:
-        genome = "results/medaka/{sample}/consensus.fasta",
-        # (Opsional) CDS dari referensi untuk membantu cleaning TE lib
+        # UPDATE: Input dari Tiara Final
+        genome = "results/final_genome/{sample}_final_clean.fasta",
         cds    = config["refs"]["cds"] if "cds" in config["refs"] else [] 
     output:
-        # Output utama yang kita butuhkan untuk rules selanjutnya
         masked = "results/repeats/{sample}/genome.fasta.mod.MAKER.masked",
         # Output tambahan (Library TE)
         te_lib = "results/repeats/{sample}/genome.fasta.mod.EDTA.TElib.fa",
