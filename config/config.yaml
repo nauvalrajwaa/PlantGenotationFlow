@@ -7,6 +7,11 @@ reads_extension: "fastq.gz"
 refs:
   genome: "refs/reference.fasta"
   gff: "refs/reference.gff3"
+  protein: "refs/reference_protein.faa" # Untuk Galba
+  cds: "refs/reference_cds.fna"         # <-- TAMBAHAN: Untuk EDTA (Optional tapi recommended)
+
+repeats:
+  species: "Rice" # Pilih: Rice, Maize, atau others
 
 # Parameter Assembly (Flye)
 assembly:

@@ -1,44 +1,65 @@
+# -----------------------------------------------------------------------------
+# REPEAT MASKING WITH EDTA (Singularity/Docker version)
+# -----------------------------------------------------------------------------
+
 rule edta_masking:
     input:
-        genome = "results/medaka/{sample}/consensus.fasta"
+        genome = "results/medaka/{sample}/consensus.fasta",
+        # (Opsional) CDS dari referensi untuk membantu cleaning TE lib
+        cds    = config["refs"]["cds"] if "cds" in config["refs"] else [] 
     output:
-        # EDTA outputnya ada di folder yang sama dengan nama file input
-        masked = "results/repeats/{sample}/consensus.fasta.mod.MAKER.masked",
-        te_lib = "results/repeats/{sample}/consensus.fasta.mod.EDTA.TElib.fa"
-    conda:
-        "../envs/repeats.yaml" 
-    # Jika pakai singularity, uncomment baris bawah dan hapus 'conda':
-    # container: "docker://hopedestruction/edta:latest"
+        # Output utama yang kita butuhkan untuk rules selanjutnya
+        masked = "results/repeats/{sample}/genome.fasta.mod.MAKER.masked",
+        # Output tambahan (Library TE)
+        te_lib = "results/repeats/{sample}/genome.fasta.mod.EDTA.TElib.fa",
+        # Output summary stats
+        summary= "results/repeats/{sample}/genome.fasta.mod.EDTA.TEanno.sum"
+    
+    # 1. Gunakan Image Resmi dari BioContainers (sesuai dokumentasi)
+    container:
+        "docker://quay.io/biocontainers/edta:2.2.0--hdfd78af_1"
+        
     params:
-        # Spesies: Rice, Maize, atau Others. PENTING untuk akurasi.
-        species = "Rice", 
-        outdir = directory("results/repeats/{sample}")
+        species = config["repeats"]["species"], # Contoh: Rice, Maize, atau others
+        outdir  = directory("results/repeats/{sample}"),
+        
+        # CDS Flag logic: jika file CDS ada di config, tambahkan flagnya
+        cds_arg = lambda wildcards, input: f"--cds reference_cds.fasta" if input.cds else ""
+        
     threads: 32
     shell:
         """
-        # 1. Buat folder output dan copy genome ke sana 
-        # (EDTA suka error kalau output dir beda level)
+        # --- PERSIAPAN LOKASI KERJA ---
+        # EDTA sangat sensitif terhadap path. Kita harus copy file ke folder kerja
+        # dan menjalankannya dari 'current directory' agar tidak error.
+        
         mkdir -p {params.outdir}
+        
+        # Copy genome assembly ke folder output dengan nama sederhana
         cp {input.genome} {params.outdir}/genome.fasta
         
-        # 2. Masuk ke folder agar output EDTA terkumpul rapi
+        # (Opsional) Copy CDS referensi jika ada
+        if [ ! -z "{input.cds}" ]; then
+            cp {input.cds} {params.outdir}/reference_cds.fasta
+        fi
+        
+        # Pindah ke directory tersebut
         cd {params.outdir}
         
-        # 3. Jalankan EDTA
-        # --sensitive 1: Pake RepeatModeler (lama tapi akurat)
-        # --anno 1: Langsung lakukan masking (bikin file .masked)
+        # --- EKSEKUSI EDTA ---
+        # --overwrite 1: Timpa jika ada sisa run gagal
+        # --sensitive 1: Pakai RepeatModeler (Wajib untuk akurasi tinggi)
+        # --anno 1: Lakukan whole genome annotation & masking
+        
         EDTA.pl --genome genome.fasta \
                 --species {params.species} \
+                {params.cds_arg} \
                 --step all \
                 --sensitive 1 \
                 --anno 1 \
-                --threads {threads}
+                --threads {threads} \
+                --overwrite 1
         
-        # 4. Rename output agar sesuai output rule Snakemake
-        # EDTA output pattern: genome.fasta.mod.MAKER.masked
-        # Kita tidak perlu rename jika di snakefile outputnya sudah match pattern EDTA,
-        # tapi pastikan path-nya benar.
-        
-        # (Opsional) Hapus file intermediate besar jika storage terbatas
-        # rm genome.fasta
+        # Tidak perlu move output, karena kita sudah bekerja di folder {params.outdir}
+        # Output file otomatis akan bernama: genome.fasta.mod.MAKER.masked, dll.
         """
