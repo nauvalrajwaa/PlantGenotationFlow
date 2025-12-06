@@ -1,0 +1,29 @@
+samples: "config/samples.tsv" 
+
+# Referensi
+refs:
+  genome: "/content/drive/MyDrive/GCF_000001735.3_TAIR10_genomic.fna"
+  gff: "/content/drive/MyDrive/GCF_000001735.3_TAIR10_genomic.gff"
+  protein: "/content/drive/MyDrive/GCF_000001735.3_TAIR10_protein.faa" # Untuk Galba
+  cds: "/content/drive/MyDrive/GCF_000001735.3_TAIR10_cds_from_genomic.fna"         # <-- TAMBAHAN: Untuk EDTA (Optional tapi recommended)
+
+repeats:
+  species: "Rice" # Pilih: Rice, Maize, atau others
+
+# Parameter Assembly (Flye)
+assembly:
+  mode: "--nano-hq" 
+  genome_size: "400m"
+
+# Parameter Polishing (Medaka)
+medaka:
+  model: "r941_min_hac_g507"
+
+# Parameter Post-Assembly QC (BUSCO)
+# Pilih lineage tanaman: viridiplantae_odb10, embryophyta_odb10, atau poales_odb10 (untuk padi/jagung)
+busco:
+  lineage: "embryophyta_odb10"
+
+# Parameter Repeats
+repeats:
+  species: "rice"

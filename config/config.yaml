@@ -1,32 +1,23 @@
 samples: "config/samples.tsv"
 
-# Input Reads (Pastikan path ini mengarah ke file yang SUDAH BERSIH)
-reads_extension: "fastq.gz" 
-
 # Referensi
 refs:
   genome: "refs/reference.fasta"
   gff: "refs/reference.gff3"
-  protein: "refs/reference_protein.faa" # Untuk Galba
-  cds: "refs/reference_cds.fna"         # <-- TAMBAHAN: Untuk EDTA (Optional tapi recommended)
+  protein: "refs/reference_protein.faa"
+  cds: "refs/reference_cds.fna" # Optional, hapus jika tidak ada
 
-repeats:
-  species: "Rice" # Pilih: Rice, Maize, atau others
-
-# Parameter Assembly (Flye)
+# Assembly & Polishing
 assembly:
-  mode: "--nano-hq" 
+  mode: "--nano-hq"
   genome_size: "400m"
-
-# Parameter Polishing (Medaka)
 medaka:
   model: "r941_min_hac_g507"
 
-# Parameter Post-Assembly QC (BUSCO)
-# Pilih lineage tanaman: viridiplantae_odb10, embryophyta_odb10, atau poales_odb10 (untuk padi/jagung)
+# QC
 busco:
   lineage: "embryophyta_odb10"
 
-# Parameter Repeats
+# Repeats
 repeats:
-  species: "rice"
+  species: "Rice" # Ganti sesuai spesies
