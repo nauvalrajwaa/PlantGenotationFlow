@@ -83,3 +83,25 @@ rule annotation_stats:
         echo "[GALBA] Gene Count:" >> {output.summary}
         awk '$3 == "gene"' {input.galba} | wc -l >> {output.summary}
         """
+
+# -----------------------------------------------------------------------------
+# 4. FINAL HTML REPORT (Visualization)
+# -----------------------------------------------------------------------------
+rule generate_annotation_report:
+    input:
+        liftoff_files = expand("results/annotation/{sample}_liftoff.gff3", sample=samples.index),
+        galba_files   = expand("results/annotation/{sample}_galba.gff3", sample=samples.index)
+    output:
+        html = "results/annotation/Final_Annotation_Report.html"
+    conda:
+        "../envs/annotation.yaml"
+    params:
+        sample_list = lambda wildcards, input: " ".join(samples.index)
+    shell:
+        """
+        python workflow/scripts/generate_annotation_report.py \
+            --liftoff {input.liftoff_files} \
+            --galba {input.galba_files} \
+            --samples {params.sample_list} \
+            --output {output.html}
+        """

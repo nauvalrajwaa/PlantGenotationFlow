@@ -2,9 +2,11 @@ channels:
   - bioconda
   - conda-forge
 dependencies:
-  - liftoff    # Sesuai instruksi: conda install -c bioconda liftoff
-  - minimap2   # Dependency Liftoff
-  - gffread    # Untuk generate protein fasta dari GFF3
+  - liftoff
+  - minimap2
+  - gffread
+  - eggnog-mapper
   - python>=3.8
-  - numpy      # Sering dibutuhkan Liftoff
-  - networkx   # Sering dibutuhkan Liftoff
+  - pandas        # <-- Tambahan
+  - matplotlib    # <-- Tambahan (Wajib untuk grafik)
+  - numpy         # <-- Tambahan

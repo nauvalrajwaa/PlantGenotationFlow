@@ -27,6 +27,8 @@ rule all:
 
         # 5. Final Assessment Report
         "results/qc/Final_Genome_Assessment.html"
+        # ---> REPORT HTML BARU <---
+        "results/annotation/Final_Annotation_Report.html"
 
 # Load Rules
 include: "rules/assembly.smk"
