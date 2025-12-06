@@ -26,11 +26,12 @@ rule fcs_screen:
         wrapper  = "resources/fcs/run_fcsadaptor.sh",
         sif      = "resources/fcs/fcs-adaptor.sif"
     output:
-        report_dir = directory("results/fcs_adaptor/{sample}"),
-        report_txt = "results/fcs_adaptor/{sample}/fcs_adaptor_report.txt"
+        # PERBAIKAN DI SINI: Menambahkan suffix "_report" agar tidak ambigu
+        report_dir = directory("results/fcs_adaptor/{sample}_report"),
+        report_txt = "results/fcs_adaptor/{sample}_report/fcs_adaptor_report.txt"
     threads: 8
     params:
-        tax_group = "--euk" # Tanaman adalah Eukariota
+        tax_group = "--euk" 
     shell:
         """
         # Gunakan path absolut untuk image
@@ -48,7 +49,8 @@ rule fcs_screen:
 rule fcs_clean:
     input:
         assembly = "results/medaka/{sample}/consensus.fasta",
-        report   = "results/fcs_adaptor/{sample}/fcs_adaptor_report.txt",
+        # PERBAIKAN DI SINI: Input report menyesuaikan path baru di atas
+        report   = "results/fcs_adaptor/{sample}_report/fcs_adaptor_report.txt",
         cleaner  = "resources/fcs/fcs.py"
     output:
         clean_fasta  = "results/fcs_adaptor/{sample}_clean.fasta",
