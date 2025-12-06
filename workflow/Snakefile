@@ -23,7 +23,7 @@ rule all:
         # 4. Annotation (Liftoff + Galba + Stats)
         expand("results/annotation/{sample}_liftoff.gff3", sample=samples.index),
         expand("results/annotation/{sample}_galba.gff3", sample=samples.index),
-        expand("results/annotation/{sample}_stats.txt", sample=samples.index)
+        expand("results/annotation/{sample}_stats.txt", sample=samples.index),
 
         # 5. Final Assessment Report
         "results/qc/Final_Genome_Assessment.html"
