@@ -2,7 +2,7 @@
 rule quast_qc:
     input:
         assembly = "results/medaka/{sample}/consensus.fasta",
-        ref      = config["refs"]["genome"] # Opsional, tapi sangat bagus jika ada
+        ref      = config["refs"]["genome"]
     output:
         report = "results/qc/quast/{sample}/report.html"
     conda:
@@ -34,8 +34,8 @@ rule busco_qc:
         mode = "genome"
     threads: 16
     shell:
-        """
-        # Hapus folder output jika ada (BUSCO error jika folder exist)
+        # Perhatikan huruf 'r' di bawah ini (r""")
+        r"""
         rm -rf {params.outdir}
         
         busco -i {input} \
@@ -46,8 +46,6 @@ rule busco_qc:
               -c {threads} \
               --force
         
-        # BUSCO output path agak tricky, kita pastikan snakemake detect file output
-        # Biasanya: results/qc/busco/{sample}/short_summary.specific.{lineage}.{sample}.txt
-        # Kita rename ke nama standar output yang diminta rule
+        # Syntax find di bawah ini yang menyebabkan warning jika tidak pakai raw string
         find results/qc/busco/{wildcards.sample} -name "short_summary*.txt" -exec cp {{}} {output.summary} \;
         """
