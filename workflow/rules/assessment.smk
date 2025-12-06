@@ -1,10 +1,14 @@
-# QUAST: Statistik Assembly (N50, L50, Mismatches)
+# -----------------------------------------------------------------------------
+# 1. QUAST QC
+# -----------------------------------------------------------------------------
 rule quast_qc:
     input:
         assembly = "results/medaka/{sample}/consensus.fasta",
         ref      = config["refs"]["genome"]
     output:
-        report = "results/qc/quast/{sample}/report.html"
+        report_html = "results/qc/quast/{sample}/report.html",
+        # TAMBAHAN: Kita butuh TSV untuk dibaca script python
+        report_tsv  = "results/qc/quast/{sample}/report.tsv"
     conda:
         "../envs/assessment.yaml"
     params:
@@ -20,7 +24,9 @@ rule quast_qc:
                  --k-mer-stats
         """
 
-# BUSCO: Kelengkapan Gen (Biological Completeness)
+# -----------------------------------------------------------------------------
+# 2. BUSCO QC
+# -----------------------------------------------------------------------------
 rule busco_qc:
     input:
         "results/medaka/{sample}/consensus.fasta"
@@ -34,9 +40,8 @@ rule busco_qc:
         mode = "genome"
     threads: 16
     shell:
-        # Perhatikan huruf 'r' di bawah ini (r""")
         r"""
-        rm -rf {params.outdir}
+        rm -rf {output.outdir}
         
         busco -i {input} \
               -l {params.lineage} \
@@ -46,6 +51,24 @@ rule busco_qc:
               -c {threads} \
               --force
         
-        # Syntax find di bawah ini yang menyebabkan warning jika tidak pakai raw string
-        find results/qc/busco/{wildcards.sample} -name "short_summary*.txt" -exec cp {{}} {output.summary} \;
+        find {output.outdir} -name "short_summary*.txt" -exec cp {{}} {output.summary} \;
         """
+
+# -----------------------------------------------------------------------------
+# 3. FINAL AGGREGATE REPORT (BARU)
+# -----------------------------------------------------------------------------
+rule generate_assessment_report:
+    input:
+        # Mengumpulkan hasil dari SEMUA sampel
+        quast_files = expand("results/qc/quast/{sample}/report.tsv", sample=samples.index),
+        busco_files = expand("results/qc/busco/{sample}/short_summary.txt", sample=samples.index)
+    output:
+        html = "results/qc/Final_Genome_Assessment.html"
+    conda:
+        "../envs/assessment.yaml"
+    params:
+        # Mengirim daftar nama sampel ke script python
+        sample_names = lambda wildcards: list(samples.index)
+    script:
+        # Lokasi script python yang tadi dibuat
+        "../scripts/generate_assessment.py"
