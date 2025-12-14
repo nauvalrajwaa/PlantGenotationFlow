@@ -158,13 +158,3 @@ Contributions are welcome\! Please open an issue or submit a pull request.
 ## 📄 License
 
 Distributed under the MIT License. See `LICENSE` for more information.
-
-```
-
----
-
-### Langkah Selanjutnya untuk Anda:
-1.  Buat file `README.md` di folder root proyek Anda.
-2.  Paste konten di atas.
-3.  Ubah `https://github.com/yourusername/PlantGenotationFlow.git` dengan link repo asli Anda nanti.
-4.  Jika Anda ingin menambahkan diagram `mermaid` agar terlihat (rendered) di GitHub, pastikan Anda menggunakan blok kode `mermaid` seperti yang saya tulis di atas (GitHub sudah mendukung native mermaid rendering).

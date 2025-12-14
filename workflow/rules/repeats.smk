@@ -4,54 +4,61 @@
 
 rule edta_masking:
     input:
-        # UPDATE: Input dari Tiara Final
+        # Input Genome dari Tiara/Cleaning
         genome = "results/final_genome/{sample}_final_clean.fasta",
-        cds    = config["refs"]["cds"] if "cds" in config["refs"] else [] 
+        
+        # CDS (Opsional dari config)
+        cds    = config["refs"]["cds"] if "cds" in config["refs"] else [],
+        
+        ### UPDATE: Input Library TE
+        # Mengarah langsung ke file hasil output bash script Anda yang sudah dijalankan
+        te_lib = "resources/TE_Library_Prep/final_curated_lib.fa"
+    
     output:
         masked = "results/repeats/{sample}/genome.fasta.mod.MAKER.masked",
-        # Output tambahan (Library TE)
         te_lib = "results/repeats/{sample}/genome.fasta.mod.EDTA.TElib.fa",
-        # Output summary stats
         summary= "results/repeats/{sample}/genome.fasta.mod.EDTA.TEanno.sum"
     
-    # 1. Gunakan Image Resmi dari BioContainers (sesuai dokumentasi)
     container:
         "docker://quay.io/biocontainers/edta:2.2.0--hdfd78af_1"
         
     params:
-        species = config["repeats"]["species"], # Contoh: Rice, Maize, atau others
+        species = config["repeats"]["species"], # Gunakan 'others'
         outdir  = directory("results/repeats/{sample}"),
         
-        # CDS Flag logic: jika file CDS ada di config, tambahkan flagnya
+        # Helper untuk argumen CDS
         cds_arg = lambda wildcards, input: f"--cds reference_cds.fasta" if input.cds else ""
         
     threads: 32
+    
     shell:
         """
-        # --- PERSIAPAN LOKASI KERJA ---
-        # EDTA sangat sensitif terhadap path. Kita harus copy file ke folder kerja
-        # dan menjalankannya dari 'current directory' agar tidak error.
-        
+        # --- 1. PERSIAPAN LOKASI KERJA ---
         mkdir -p {params.outdir}
         
-        # Copy genome assembly ke folder output dengan nama sederhana
+        # Copy GENOME ke folder kerja
         cp {input.genome} {params.outdir}/genome.fasta
         
-        # (Opsional) Copy CDS referensi jika ada
+        ### UPDATE: Copy Library TE ke Folder Kerja
+        # Kita copy file dari resources ke dalam folder output EDTA
+        # dan merenamenya menjadi 'curated_lib.fasta' agar sederhana & aman dari error path
+        cp {input.te_lib} {params.outdir}/curated_lib.fasta
+        
+        # Copy CDS (Jika ada)
         if [ ! -z "{input.cds}" ]; then
             cp {input.cds} {params.outdir}/reference_cds.fasta
         fi
         
-        # Pindah ke directory tersebut
+        # Pindah ke directory kerja (PENTING: EDTA harus dijalankan dari folder outputnya)
         cd {params.outdir}
         
-        # --- EKSEKUSI EDTA ---
-        # --overwrite 1: Timpa jika ada sisa run gagal
-        # --sensitive 1: Pakai RepeatModeler (Wajib untuk akurasi tinggi)
-        # --anno 1: Lakukan whole genome annotation & masking
+        # --- 2. EKSEKUSI EDTA ---
+        # Flag --curatedlib ditambahkan di bawah ini
         
         EDTA.pl --genome genome.fasta \
                 --species {params.species} \
+                ### UPDATE: Arahkan ke file library yang baru dicopy
+                --curatedlib curated_lib.fasta \
                 {params.cds_arg} \
                 --step all \
                 --sensitive 1 \
@@ -59,6 +66,5 @@ rule edta_masking:
                 --threads {threads} \
                 --overwrite 1
         
-        # Tidak perlu move output, karena kita sudah bekerja di folder {params.outdir}
-        # Output file otomatis akan bernama: genome.fasta.mod.MAKER.masked, dll.
+        # Output otomatis tersimpan di folder ini
         """
