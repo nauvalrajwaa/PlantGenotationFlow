@@ -1,23 +1,84 @@
+# =============================================================================
+# PLANT GENOTATION FLOW CONFIGURATION
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. INPUT DATA
+# -----------------------------------------------------------------------------
+# File yang berisi daftar sampel yang akan diproses.
+# Format TAB separated value: sample_id [tab] path/to/reads
 samples: "config/samples.tsv"
 
-# Referensi
+# -----------------------------------------------------------------------------
+# 2. REFERENCE FILES
+# -----------------------------------------------------------------------------
+# Path relative atau absolute ke file referensi yang dibutuhkan pipeline
 refs:
-  genome: "refs/reference.fasta"
-  gff: "refs/reference.gff3"
-  protein: "refs/reference_protein.faa"
-  cds: "refs/reference_cds.fna" # Optional, hapus jika tidak ada
+  genome:  "refs/reference.fasta"        # Referensi genom spesies dekat (untuk Liftoff)
+  gff:     "refs/reference.gff3"         # File GFF3 dari referensi genom
+  protein: "refs/reference_protein.faa"  # Sekuens protein referensi (untuk Galba/Homology)
+  cds:     "refs/reference_cds.fna"      # Coding Sequences referensi (Optional)
 
-# Assembly & Polishing
-assembly:
-  mode: "--nano-hq"
-  genome_size: "400m"
-medaka:
-  model: "r941_min_hac_g507"
+# -----------------------------------------------------------------------------
+# 3. ANNOTATION SETTINGS
+# -----------------------------------------------------------------------------
+annotation:
+  # Pilih skenario/metode anotasi yang ingin dijalankan:
+  # - "liftoff" : Anotasi gen berbasis DNA transfer (Mapping based)
+  # - "tetools" : Anotasi repeat elements menggunakan RepeatMasker (Tetools Dfam)
+  # - "both"    : Menjalankan keduanya (Liftoff + Tetools)
+  method: "liftoff"
 
-# QC
-busco:
-  lineage: "embryophyta_odb10"
+# Konfigurasi spesifik untuk Tetools (RepeatMasker via Dfam Container)
+# Digunakan jika annotation: method adalah "tetools" atau "both"
+tetools:
+  # Spesies target untuk library repeat. 
+  # Contoh: "viridiplantae" (tumbuhan umum), "Oryza sativa", "Arabidopsis".
+  # Cek ketersediaan di RepBase/Dfam.
+  species: "viridiplantae"
+  
+  # Jumlah CPU thread yang dialokasikan untuk container Tetools
+  threads: 8
 
-# Repeats
+# -----------------------------------------------------------------------------
+# 4. REPEAT ANALYSIS (EDTA Module)
+# -----------------------------------------------------------------------------
+# Konfigurasi untuk modul EDTA (De novo repeat annotation) berbeda dengan Tetools
 repeats:
-  species: "Rice" # Ganti sesuai spesies
+  # Spesies spesifik untuk EDTA. 
+  # Opsi umum: "Rice", "Maize", atau "others" untuk tumbuhan lain.
+  species: "Rice"
+
+# -----------------------------------------------------------------------------
+# 5. ASSEMBLY & POLISHING PARAMETERS
+# -----------------------------------------------------------------------------
+assembly:
+  # Pilih assembler: "flye" atau "hifiasm"
+  method: "flye"
+  
+  # Parameter Flye
+  flye:
+    mode: "--nano-hq"      # Mode assembler (Flye). Gunakan --nano-hq untuk Guppy5+
+    genome_size: "400m"    # Estimasi ukuran genom (contoh: 400m, 1g, 50k)
+
+  # Parameter Hifiasm
+  # Output file akan berupa .gfa, perlu dikonversi ke fasta
+  hifiasm:
+    # Mode hifiasm. Gunakan "--ont" untuk Oxford Nanopore R10+ reads.
+    # Kosongkan untuk PacBio HiFi default.
+    extra_args: "--ont" 
+    
+    # Hifiasm menghasilkan primary contigs (p_ctg) dan alternate (a_ctg).
+    # Pipeline ini akan mengambil p_ctg sebagai output utama.
+
+medaka:
+  model: "r941_min_hac_g507" # Model neural network Medaka untuk polishing
+
+# -----------------------------------------------------------------------------
+# 6. QUALITY CONTROL (BUSCO)
+# -----------------------------------------------------------------------------
+busco:
+  # Lineage dataset BUSCO untuk evaluasi kelengkapan assembly/anotasi.
+  # List lineage bisa dilihat dengan `busco --list-datasets`.
+  # Contoh: "embryophyta_odb10", "poales_odb10", "solanales_odb10"
+  lineage: "embryophyta_odb10"

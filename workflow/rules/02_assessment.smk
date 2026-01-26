@@ -1,13 +1,13 @@
 # -----------------------------------------------------------------------------
-# 1. QUAST QC
+# 1. QUAST QC (Preliminary vs Final)
 # -----------------------------------------------------------------------------
 rule quast_qc:
     input:
         assembly = "results/medaka/{sample}/consensus.fasta",
+        final    = "results/final_genome/{sample}_final_clean.fasta",
         ref      = config["refs"]["genome"]
     output:
         report_html = "results/qc/quast/{sample}/report.html",
-        # TAMBAHAN: Kita butuh TSV untuk dibaca script python
         report_tsv  = "results/qc/quast/{sample}/report.tsv"
     conda:
         "../envs/assessment.yaml"
@@ -16,7 +16,9 @@ rule quast_qc:
     threads: 8
     shell:
         """
-        quast.py {input.assembly} \
+        # Run QUAST comparing Draft (Medaka) and Final (Cleaned)
+        quast.py {input.assembly} {input.final} \
+                 -l "Draft_Assembly, Final_Cleaned" \
                  -r {input.ref} \
                  -o {params.outdir} \
                  --threads {threads} \
@@ -25,11 +27,11 @@ rule quast_qc:
         """
 
 # -----------------------------------------------------------------------------
-# 2. BUSCO QC
+# 2. BUSCO QC (Final Genome)
 # -----------------------------------------------------------------------------
 rule busco_qc:
     input:
-        "results/medaka/{sample}/consensus.fasta"
+        "results/final_genome/{sample}_final_clean.fasta"
     output:
         summary = "results/qc/busco/{sample}/short_summary.txt",
         outdir  = directory("results/qc/busco/{sample}")
@@ -51,7 +53,9 @@ rule busco_qc:
               -c {threads} \
               --force
         
-        find {output.outdir} -name "short_summary*.txt" -exec cp {{}} {output.summary} \;
+        # Rename default busco output dir to match expected output
+        mv results/qc/busco/{wildcards.sample} {output.outdir}
+        mv {output.outdir}/short_summary.*.txt {output.summary}
         """
 
 # -----------------------------------------------------------------------------

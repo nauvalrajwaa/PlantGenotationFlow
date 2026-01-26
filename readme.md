@@ -22,32 +22,33 @@ It integrates state-of-the-art tools to handle the complexity of plant genomes (
 
 ## 🚀 Key Features
 
-  * **Best-in-Class Assembly:** Uses **Hifiasm** for accurate haplotype-resolved assembly (optimized for PacBio HiFi).
-  * **Plant-Specific Repeat Masking:** Integrates **EDTA (Extensive de-novo TE Annotator)** to handle complex plant transposons better than standard RepeatModeler.
-  * **High-Accuracy Annotation:** Utilizes **BRAKER3** (combining GeneMark-ETP and Augustus) for evidence-based gene prediction using protein and/or RNA-seq data.
+  * **Best-in-Class Assembly:** Options for **Flye** (Nanopore R9/R10) and **Hifiasm** (PacBio HiFi/ONT R10), offering flexibility for different long-read technologies.
+  * **Comprehensive Quality Control:** Multi-tier QC using **NanoPlot** (Raw Reads), **Filtlong** (Filtering), **QUAST** (Assembly Metrics), and **BUSCO** (Gene Completeness).
+  * **Automated Decontamination:** **FCS-Adaptor** integration to screen and remove vector/adaptor contamination before annotation.
+  * **Plant-Specific Repeat Masking:** Integrates **EDTA** (De-novo) and **Tetools/RepeatMasker** (Homology-based) specifically optimized for complex plant genomes.
+  * **Flexible Annotation:** Choose between **Liftoff** (Mapping-based) for high-quality reference transfer or **Tetools/Galba** for repeat-rich contexts.
   * **Modular & Scalable:** Built on Snakemake modules (`.smk`), allowing easy maintenance and processing of multiple plant samples via a simple TSV sheet.
-  * **Containerized:** Full support for Singularity/Docker to avoid dependency hell (crucial for EDTA and BRAKER).
+  * **Containerized:** Full support for Singularity/Docker (via FCS, EDTA, Tetools) to avoid dependency hell.
 
 ## 🛠️ Workflow
 
-The pipeline consists of 4 main modules:
+The pipeline consists of modular steps:
 
 ```mermaid
 graph TD
-    A[Raw HiFi Reads] -->|Assembly| B(Hifiasm)
-    B --> C{Draft Assembly}
+    A[Raw Reads] -->|QC| B(NanoPlot & Filtlong)
+    B -->|Assembly| C{Flye / Hifiasm}
     
-    C -->|QC| D[QUAST]
-    C -->|QC| E[BUSCO]
+    C -->|Draft Assembly| D[Polishing (Medaka)]
+    D --> E[Decontamination (FCS-Adaptor & Tiara)]
     
-    C -->|Repeat Annotation| F[EDTA]
-    F --> G[Soft-masked Genome]
+    E -->|Clean Genome| F[Assessment (QUAST & BUSCO)]
     
-    G -->|Structural Annotation| H[BRAKER3]
-    I[Protein Evidence] --> H
-    J[RNA-seq Evidence] --> H
+    F -->|Repeat Masking| G[EDTA / Tetools]
+    G --> H[Masked Genome]
     
-    H --> K((Final GFF3))
+    H -->|Annotation| I{Liftoff / Galba}
+    I --> J((Final GFF3 & HTML Report))
 ```
 
 ## 📂 Directory Structure
@@ -55,15 +56,13 @@ graph TD
 ```text
 PlantGenotationFlow/
 ├── config/
-│   ├── config.yaml          # Main configuration (threads, paths, containers)
+│   ├── config.yaml          # Main configuration (methods, threads, paths)
 │   └── samples.tsv          # Input data sheet
 ├── workflow/
 │   ├── Snakefile            # Main entry point
-│   └── rules/               # Modules
-│       ├── assembly.smk
-│       ├── qc.smk
-│       ├── repeats.smk      # EDTA logic
-│       └── annotation.smk   # BRAKER3 logic
+│   ├── rules/               # Modules (00_qc, 01_assembly, 02_assessment, etc.)
+│   ├── envs/                # Conda environments
+│   └── scripts/             # Python helper scripts
 └── results/                 # Output directory (auto-generated)
 ```
 
@@ -103,23 +102,27 @@ List your samples here. The pipeline can handle multiple genomes in parallel.
 
 ### 2\. `config/config.yaml`
 
-Edit this file to point to your reference databases and container images.
+Edit this file to customize your workflow, including assembly methods and reference datasets.
 
 ```yaml
-samples_file: "config/samples.tsv"
+samples: "config/samples.tsv"
 
-threads:
-  assembly: 32
-  annotation: 48
+# Referensi
+refs:
+  genome: "refs/reference.fasta"
+  gff: "refs/reference.gff3" # Required for Liftoff
 
-databases:
-  busco_lineage: "embryophyta_odb10"
-  protein_db: "/path/to/reference/proteins.fasta"
+# Assembly Settings
+assembly:
+  method: "flye" # Options: "flye" or "hifiasm"
+  flye:
+    mode: "--nano-hq"
+  hifiasm:
+    extra_args: "--ont"
 
-containers:
-  edta: "docker://jianzuoyi/edta:latest"
-  braker3: "docker://teambraker/braker3:latest"
-  busco: "docker://ezlabgva/busco:v5.4.3_cv1"
+# Annotation Settings
+annotation:
+  method: "liftoff" # Options: "liftoff", "tetools", "both"
 ```
 
 ## 🏃 Usage
@@ -127,29 +130,24 @@ containers:
 **Dry run (Test the workflow):**
 
 ```bash
-snakemake -np
+snakemake -n
 ```
 
 **Run the pipeline (Local machine/Server):**
+Note: `--use-singularity` is required for EDTA and Tetools steps.
 
 ```bash
-snakemake --use-conda --use-singularity --cores 48
-```
-
-**Run on Slurm/HPC:**
-
-```bash
-snakemake --profile config/slurm --use-conda --use-singularity
+snakemake --use-conda --use-singularity --cores 32
 ```
 
 ## 📊 Outputs
 
 Upon completion, you will find the results in the `results/` directory:
 
-  * **`results/assembly/{sample}/`**: Final assembly FASTA (`.p_ctg.fa`).
-  * **`results/qc/{sample}/`**: BUSCO summary and QUAST HTML reports.
-  * **`results/repeats/{sample}/`**: TE annotation statistics and soft-masked genome (via EDTA).
-  * **`results/annotation/{sample}/`**: **The final `braker.gff3`** containing gene predictions.
+  * **`results/final_genome/{sample}_final_clean.fasta`**: The polished and decontaminated genome.
+  * **`results/qc/`**: Comprehensive QC reports (NanoPlot, QUAST, BUSCO).
+  * **`results/annotation/`**: Final GFF3 files (Liftoff/Galba) and HTML summary report.
+  * **`results/repeats/`**: EDTA and RepeatMasker Tbl stats.
 
 ## 🤝 Contributing
 

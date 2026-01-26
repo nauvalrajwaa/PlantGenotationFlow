@@ -9,6 +9,9 @@ def get_reads(wildcards):
 
 rule all:
     input:
+        # 0. Raw Read QC
+        expand("results/qc/nanoplot/{sample}/NanoPlot-report.html", sample=samples.index),
+
         # 1. Decontamination Outputs (Cek hasil bersih)
         expand("results/final_genome/{sample}_final_clean.fasta", sample=samples.index),
         expand("results/final_genome/{sample}_rejected_ids.txt", sample=samples.index),
@@ -31,8 +34,9 @@ rule all:
         "results/annotation/Final_Annotation_Report.html"
 
 # Load Rules
-include: "rules/assembly.smk"
-include: "rules/assessment.smk"
-include: "rules/decontamination.smk" # <-- New Rule File
-include: "rules/repeats.smk"
-include: "rules/annotation.smk"
+include: "rules/00_qc.smk"
+include: "rules/01_assembly.smk"
+include: "rules/02_assessment.smk"
+include: "rules/03_decontamination.smk"
+include: "rules/04_repeats.smk"
+include: "rules/05_annotation.smk"

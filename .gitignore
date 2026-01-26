@@ -1,2 +1,24 @@
+# Logs and Temporary Files
 *.log
 *.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Snakemake
+.snakemake/
+
+# Output & Intermediate Directories
+results/
+benchmarks/
+logs/
+
+# Optional: Resources (if large files downloaded here)
+# resources/
+
+# System Files
+.DS_Store
+Thumbs.db
+

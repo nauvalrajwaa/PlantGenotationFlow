@@ -62,12 +62,45 @@ rule galba_annotation:
         """
 
 # -----------------------------------------------------------------------------
-# 3. Summary Stats
+# 3. TETOOLS (Dfam RepeatMasker - Repeat Detection) via DOCKER
+# -----------------------------------------------------------------------------
+rule tetools_annotation:
+    input:
+        target = "results/final_genome/{sample}_final_clean.fasta"
+    output:
+        masked = "results/annotation/{sample}_tetools.fasta.masked",
+        tbl    = "results/annotation/{sample}_tetools.fasta.tbl",
+        out    = "results/annotation/{sample}_tetools.fasta.out"
+    container:
+        "docker://dfam/tetools:latest"
+    threads: 8
+    params:
+        species = config["tetools"]["species"],
+        dir     = "results/annotation"
+    shell:
+        """
+        # Copy input untuk konsistensi output naming
+        cp {input.target} {params.dir}/{wildcards.sample}_tetools.fasta
+        
+        # Run RepeatMasker dengan tetools
+        RepeatMasker \
+            -pa {threads} \
+            -species "{params.species}" \
+            -dir {params.dir} \
+            {params.dir}/{wildcards.sample}_tetools.fasta
+        
+        # Cleanup temporary file
+        rm {params.dir}/{wildcards.sample}_tetools.fasta
+        """
+
+# -----------------------------------------------------------------------------
+# 4. Summary Stats
 # -----------------------------------------------------------------------------
 rule annotation_stats:
     input:
         liftoff = "results/annotation/{sample}_liftoff.gff3",
-        galba   = "results/annotation/{sample}_galba.gff3"
+        galba   = "results/annotation/{sample}_galba.gff3",
+        tetools = "results/annotation/{sample}_tetools.fasta.tbl"
     output:
         summary = "results/annotation/{sample}_stats.txt"
     shell:
@@ -82,15 +115,21 @@ rule annotation_stats:
         
         echo "[GALBA] Gene Count:" >> {output.summary}
         awk '$3 == "gene"' {input.galba} | wc -l >> {output.summary}
+        
+        echo "" >> {output.summary}
+        
+        echo "[TETOOLS] Repeat Summary:" >> {output.summary}
+        tail -3 {input.tetools} >> {output.summary}
         """
 
 # -----------------------------------------------------------------------------
-# 4. FINAL HTML REPORT (Visualization)
+# 5. FINAL HTML REPORT (Visualization)
 # -----------------------------------------------------------------------------
 rule generate_annotation_report:
     input:
         liftoff_files = expand("results/annotation/{sample}_liftoff.gff3", sample=samples.index),
-        galba_files   = expand("results/annotation/{sample}_galba.gff3", sample=samples.index)
+        galba_files   = expand("results/annotation/{sample}_galba.gff3", sample=samples.index),
+        tetools_files = expand("results/annotation/{sample}_tetools.fasta.tbl", sample=samples.index)
     output:
         html = "results/annotation/Final_Annotation_Report.html"
     conda:
@@ -102,6 +141,7 @@ rule generate_annotation_report:
         python workflow/scripts/generate_annotation_report.py \
             --liftoff {input.liftoff_files} \
             --galba {input.galba_files} \
+            --tetools {input.tetools_files} \
             --samples {params.sample_list} \
             --output {output.html}
         """
