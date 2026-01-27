@@ -5,8 +5,7 @@ dependencies:
   - liftoff
   - minimap2
   - gffread
-  - eggnog-mapper
-  - python>=3.8
-  - pandas        # <-- Tambahan
-  - matplotlib    # <-- Tambahan (Wajib untuk grafik)
-  - numpy         # <-- Tambahan
+  - python=3.9    # Pin versi python agar stabil
+  - pandas
+  - matplotlib
+  - numpy

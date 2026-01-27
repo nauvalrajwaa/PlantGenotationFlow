@@ -82,8 +82,9 @@ rule medaka_polishing:
         reads = get_reads
     output:
         consensus = "results/medaka/{sample}/consensus.fasta"
-    conda:
-        "../envs/polishing.yaml"
+    # Menggunakan container alih-alih conda untuk menghindari error dependensi Medaka yang terkenal sulit
+    container:
+        "docker://ontresearch/medaka:v1.11.3"
     params:
         model = config["medaka"]["model"],
         outdir = directory("results/medaka/{sample}")

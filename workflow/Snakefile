@@ -4,6 +4,10 @@ configfile: "config/config.yaml"
 
 samples = pd.read_csv(config["samples"], sep="\t").set_index("sample", drop=False)
 
+# Cegah wildcard 'sample' mengandung slash '/' untuk menghindari siklus tak terbatas
+wildcard_constraints:
+    sample="[^/]+"
+
 def get_reads(wildcards):
     return samples.loc[wildcards.sample, "reads"]
 
@@ -29,7 +33,7 @@ rule all:
         expand("results/annotation/{sample}_stats.txt", sample=samples.index),
 
         # 5. Final Assessment Report
-        "results/qc/Final_Genome_Assessment.html"
+        "results/qc/Final_Genome_Assessment.html",
         # ---> REPORT HTML BARU <---
         "results/annotation/Final_Annotation_Report.html"
 
