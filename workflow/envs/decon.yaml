@@ -2,6 +2,8 @@ channels:
   - bioconda
   - conda-forge
 dependencies:
-  - tiara
-  - seqkit  # Wajib untuk memfilter fasta
-  - python>=3.8
+  - seqkit
+  - python=3.9
+  - pip
+  - pip:
+    - tiara

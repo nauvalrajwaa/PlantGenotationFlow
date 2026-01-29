@@ -1,0 +1,9 @@
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults   # <--- Crucial: Stops Anaconda from mixing in incompatible packages
+dependencies:
+  - quast >=5.2
+  - python >=3.9  # Relaxed slightly to let solver pick compatible patch versions
+  - pandas
+  - simplejson    # Explicitly listing this often helps the solver find it

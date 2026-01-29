@@ -1,11 +1,15 @@
+name: annotation
 channels:
-  - bioconda
   - conda-forge
+  - bioconda
+  - nodefaults
 dependencies:
-  - liftoff
-  - minimap2
+  - python=3.9
+  - liftoff       # Includes pysam, networkx, numpy, and minimap2 automatically
+  - minimap2      # Explicitly listing it ensures you get the version you expect
   - gffread
-  - python=3.9    # Pin versi python agar stabil
   - pandas
   - matplotlib
   - numpy
+  - networkx
+  - pip           # Keep pip in case you add other pure-python tools later

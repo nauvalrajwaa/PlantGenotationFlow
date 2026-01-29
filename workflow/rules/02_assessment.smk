@@ -10,7 +10,7 @@ rule quast_qc:
         report_html = "results/qc/quast/{sample}/report.html",
         report_tsv  = "results/qc/quast/{sample}/report.tsv"
     conda:
-        "../envs/assessment.yaml"
+        "../envs/quast.yaml"
     params:
         outdir = directory("results/qc/quast/{sample}")
     threads: 8
@@ -36,7 +36,7 @@ rule busco_qc:
         summary = "results/qc/busco/{sample}/short_summary.txt",
         outdir  = directory("results/qc/busco/{sample}")
     conda:
-        "../envs/assessment.yaml"
+        "../envs/busco.yaml"
     params:
         lineage = config["busco"]["lineage"],
         mode = "genome"
@@ -68,8 +68,9 @@ rule generate_assessment_report:
         busco_files = expand("results/qc/busco/{sample}/short_summary.txt", sample=samples.index)
     output:
         html = "results/qc/Final_Genome_Assessment.html"
+    # Menggunakan env quast saja karena sudah ada pandas
     conda:
-        "../envs/assessment.yaml"
+        "../envs/quast.yaml"
     params:
         # Mengirim daftar nama sampel ke script python
         sample_names = lambda wildcards: list(samples.index)
