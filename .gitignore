@@ -14,6 +14,7 @@ __pycache__/
 results/
 benchmarks/
 logs/
+resources/
 
 # Optional: Resources (if large files downloaded here)
 # resources/

@@ -11,8 +11,9 @@ rule edta_masking:
         cds    = config["refs"]["cds"] if "cds" in config["refs"] else [],
         
         ### UPDATE: Input Library TE
-        # Mengarah langsung ke file hasil output bash script Anda yang sudah dijalankan
-        te_lib = "resources/TE_Library_Prep/final_curated_lib.fa"
+        # Use `tetools.te_lib` from config if set, otherwise fall back to
+        # the default resources path produced by the prepare script.
+        te_lib = config.get("tetools", {}).get("te_lib", "resources/TE_Library_Prep/final_curated_lib.fa")
     
     output:
         masked = "results/repeats/{sample}/genome.fasta.mod.MAKER.masked",

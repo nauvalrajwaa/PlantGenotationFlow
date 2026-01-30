@@ -14,10 +14,10 @@ samples: "config/samples.tsv"
 # -----------------------------------------------------------------------------
 # Path relative atau absolute ke file referensi yang dibutuhkan pipeline
 refs:
-  genome:  "refs/reference.fasta"        # Referensi genom spesies dekat (untuk Liftoff)
-  gff:     "refs/reference.gff3"         # File GFF3 dari referensi genom
-  protein: "refs/reference_protein.faa"  # Sekuens protein referensi (untuk Galba/Homology)
-  cds:     "refs/reference_cds.fna"      # Coding Sequences referensi (Optional)
+  genome:  "/data/6.PANEL_EXPERTS/wikoaw/Penugasan_YSDS/data/external/Durio_Reference/musangking/GCF_002303985.1_Duzib1.0_genomic.fna"        # Referensi genom spesies dekat (untuk Liftoff)
+  gff:     "/data/6.PANEL_EXPERTS/wikoaw/Penugasan_YSDS/data/external/Durio_Reference/musangking/GCF_002303985.1_Duzib1.0_genomic.gff"         # File GFF3 dari referensi genom
+  protein: "/data/6.PANEL_EXPERTS/wikoaw/Penugasan_YSDS/data/external/Durio_Reference/musangking/GCF_002303985.1_Duzib1.0_protein.faa"  # Sekuens protein referensi (untuk Galba/Homology)
+  cds:     "/data/6.PANEL_EXPERTS/wikoaw/Penugasan_YSDS/data/external/Durio_Reference/musangking/GCF_002303985.1_Duzib1.0_cds_from_genomic.fna"      # Coding Sequences referensi (Optional)
 
 # -----------------------------------------------------------------------------
 # 3. ANNOTATION SETTINGS
@@ -39,6 +39,9 @@ tetools:
   
   # Jumlah CPU thread yang dialokasikan untuk container Tetools
   threads: 8
+  # Path ke library TE yang sudah Anda siapkan (opsional).
+  # Jika kosong/terhapus, pipeline akan fallback ke resources/TE_Library_Prep/final_curated_lib.fa
+  te_lib: "resources/TE_Library_Prep/final_curated_lib.fa"
 
 # -----------------------------------------------------------------------------
 # 4. REPEAT ANALYSIS (EDTA Module)
@@ -47,7 +50,7 @@ tetools:
 repeats:
   # Spesies spesifik untuk EDTA. 
   # Opsi umum: "Rice", "Maize", atau "others" untuk tumbuhan lain.
-  species: "Rice"
+  species: "others"
 
 # -----------------------------------------------------------------------------
 # 5. ASSEMBLY & POLISHING PARAMETERS
