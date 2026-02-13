@@ -15,6 +15,7 @@ results/
 benchmarks/
 logs/
 resources/
+intermediate_files/
 .RepeatMaskerCache/
 .cache/
 .config/
