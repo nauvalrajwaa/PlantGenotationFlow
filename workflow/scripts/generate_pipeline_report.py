@@ -505,30 +505,35 @@ def parse_repeatmasker_tbl(tbl_file):
     return rows
 
 
-def section_repeats(samples, edta_summary_files, layer2_tbl_files=None):
-    """Section 4: Repeat Masking (EDTA + Double-Layer RepeatMasker)."""
+def section_repeats(samples, edta_summary_files=None, layer2_tbl_files=None, repeat_method="edta"):
+    """Section 4: Repeat Masking (EDTA or Double-Layer RepeatMasker)."""
     html = '<section id="repeats">\n'
     html += '  <h2>Repeat Masking</h2>\n'
+    html += f'  <div class="card"><p><strong>Method used:</strong> '
+    html += f'<span class="badge badge-info">{repeat_method.upper()}</span></p></div>\n'
 
-    # --- EDTA ---
-    html += '  <h3>EDTA (de novo TE annotation)</h3>\n'
-    for sample, sf in zip(samples, edta_summary_files):
-        html += f'  <h4 id="sample-{sample}">{sample}</h4>\n'
-        rows = parse_edta_summary(sf)
-        if rows:
-            html += '  <div class="card"><table>\n'
-            html += '    <tr><th>Repeat Type</th><th>Count</th><th>Length (bp)</th><th>% of Genome</th></tr>\n'
-            for r in rows:
-                html += f'    <tr><td>{r["type"]}</td><td>{r["count"]}</td><td>{r["bp"]}</td><td>{r["pct"]}</td></tr>\n'
-            html += '  </table></div>\n'
-        else:
-            html += '  <div class="card"><p>EDTA summary not available or could not be parsed.</p></div>\n'
+    if repeat_method == "edta" and edta_summary_files:
+        # --- EDTA ---
+        html += '  <h3>EDTA (de novo TE annotation)</h3>\n'
+        for sample, sf in zip(samples, edta_summary_files):
+            html += f'  <h4 id="sample-{sample}">{sample}</h4>\n'
+            rows = parse_edta_summary(sf)
+            if rows:
+                html += '  <div class="card"><table>\n'
+                html += '    <tr><th>Repeat Type</th><th>Count</th><th>Length (bp)</th><th>% of Genome</th></tr>\n'
+                for r in rows:
+                    html += f'    <tr><td>{r["type"]}</td><td>{r["count"]}</td><td>{r["bp"]}</td><td>{r["pct"]}</td></tr>\n'
+                html += '  </table></div>\n'
+            else:
+                html += '  <div class="card"><p>EDTA summary not available or could not be parsed.</p></div>\n'
 
-    # --- Double-Layer RepeatMasker ---
-    if layer2_tbl_files:
-        html += '  <h3>Double-Layer RepeatMasker (Layer 2 — Curated Library)</h3>\n'
+    elif repeat_method == "tetools" and layer2_tbl_files:
+        # --- Double-Layer RepeatMasker ---
+        html += '  <h3>Double-Layer RepeatMasker</h3>\n'
+        html += '  <div class="card"><p>Layer 1: RepeatModeler (de novo TE library) &rarr; RepeatMasker<br>'
+        html += '  Layer 2: Curated TE library &rarr; RepeatMasker (soft-masking)</p></div>\n'
         for sample, tf in zip(samples, layer2_tbl_files):
-            html += f'  <h4>{sample}</h4>\n'
+            html += f'  <h4 id="sample-{sample}">{sample} — Layer 2 Summary</h4>\n'
             tbl_text = safe_read(tf)
             if tbl_text:
                 html += f'  <div class="card"><pre>{tbl_text}</pre></div>\n'
@@ -539,29 +544,49 @@ def section_repeats(samples, edta_summary_files, layer2_tbl_files=None):
     return html
 
 
-def section_annotation(samples, liftoff_files, galba_files, stats_files):
-    """Section 5: Annotation (Liftoff + Galba + stats)."""
+def section_annotation(samples, liftoff_files=None, galba_files=None,
+                       stats_files=None, annotation_method="both"):
+    """Section 5: Annotation (Liftoff and/or Galba + stats)."""
     html = '<section id="annotation">\n'
     html += '  <h2>Structural Annotation</h2>\n'
+    html += f'  <div class="card"><p><strong>Method:</strong> '
+    html += f'<span class="badge badge-info">{annotation_method.upper()}</span></p></div>\n'
 
     # Comparison table
-    html += '  <h3>Gene Count Comparison</h3>\n'
+    html += '  <h3>Gene Count Summary</h3>\n'
     html += '  <div class="card"><table>\n'
-    html += '    <tr><th>Sample</th><th>Liftoff Genes</th><th>Liftoff mRNAs</th>'
-    html += '<th>Galba Genes</th><th>Galba mRNAs</th></tr>\n'
-    for sample, lf, gf in zip(samples, liftoff_files, galba_files):
-        ls = parse_gff_stats(lf)
-        gs = parse_gff_stats(gf)
+
+    # Build header
+    header = '<tr><th>Sample</th>'
+    if annotation_method in ("liftoff", "both") and liftoff_files:
+        header += '<th>Liftoff Genes</th><th>Liftoff mRNAs</th>'
+    if annotation_method in ("galba", "both") and galba_files:
+        header += '<th>Galba Genes</th><th>Galba mRNAs</th>'
+    header += '</tr>\n'
+    html += f'    {header}'
+
+    # Build rows
+    n = len(samples)
+    for i, sample in enumerate(samples):
         html += f'    <tr><td><strong>{sample}</strong></td>'
-        html += f'<td>{ls["genes"]}</td><td>{ls["mrnas"]}</td>'
-        html += f'<td>{gs["genes"]}</td><td>{gs["mrnas"]}</td></tr>\n'
+        if annotation_method in ("liftoff", "both") and liftoff_files and i < len(liftoff_files):
+            ls = parse_gff_stats(liftoff_files[i])
+            html += f'<td>{ls["genes"]}</td><td>{ls["mrnas"]}</td>'
+        if annotation_method in ("galba", "both") and galba_files and i < len(galba_files):
+            gs = parse_gff_stats(galba_files[i])
+            html += f'<td>{gs["genes"]}</td><td>{gs["mrnas"]}</td>'
+        html += '</tr>\n'
     html += '  </table></div>\n'
 
     # Per-sample stats
-    html += '  <h3>Detailed Stats per Sample</h3>\n'
-    for sample, sf in zip(samples, stats_files):
-        text = parse_annotation_stats_txt(sf)
-        html += f'  <div class="card"><h4>{sample}</h4><pre>{text}</pre></div>\n'
+    if stats_files:
+        html += '  <h3>Detailed Stats per Sample</h3>\n'
+        for sample, sf in zip(samples, stats_files):
+            text = parse_annotation_stats_txt(sf)
+            html += f'  <div class="card"><h4>{sample}</h4><pre>{text}</pre></div>\n'
+
+    html += '</section>\n'
+    return html
 
     html += '</section>\n'
     return html
@@ -583,10 +608,7 @@ def section_summary(samples):
         ("final_genome/", "Clean genome FASTA"),
         ("qc/quast/", "QUAST assembly assessment"),
         ("qc/busco/", "BUSCO completeness"),
-        ("repeats/", "EDTA + Double-Layer RepeatMasker masking & library"),
-        ("repeats/repeatmodeler/", "RepeatModeler de novo TE library"),
-        ("repeats/layer1/", "Layer 1 masking (RepeatModeler library)"),
-        ("repeats/layer2/", "Layer 2 masking (curated TE library)"),
+        ("repeats/", "Repeat masking (EDTA or TEtools double-layer)"),
         ("annotation/", "Liftoff, Galba structural annotation"),
     ]
     for d, desc in dirs_info:
@@ -599,7 +621,8 @@ def section_summary(samples):
 
 def generate_report(samples, nanoplot_stats, quast_tsvs, busco_summaries,
                     rejected_ids, edta_summaries, liftoff_gffs, galba_gffs,
-                    annotation_stats, output_file, layer2_tbls=None):
+                    annotation_stats, output_file, layer2_tbls=None,
+                    repeat_method="edta", annotation_method="both"):
     """Assemble the full indexed HTML report."""
     html = "<!DOCTYPE html>\n<html lang='en'>\n<head>\n"
     html += "  <meta charset='UTF-8'>\n"
@@ -620,8 +643,9 @@ def generate_report(samples, nanoplot_stats, quast_tsvs, busco_summaries,
     html += section_qc(samples, nanoplot_stats, quast_tsvs, busco_summaries)
     html += section_assembly(samples)
     html += section_decontamination(samples, rejected_ids)
-    html += section_repeats(samples, edta_summaries, layer2_tbls)
-    html += section_annotation(samples, liftoff_gffs, galba_gffs, annotation_stats)
+    html += section_repeats(samples, edta_summaries, layer2_tbls, repeat_method)
+    html += section_annotation(samples, liftoff_gffs or None, galba_gffs or None,
+                               annotation_stats, annotation_method)
     html += section_summary(samples)
 
     html += '<footer>PlantGenotationFlow &mdash; Genome Annotation Pipeline Report</footer>\n'
@@ -640,18 +664,27 @@ def generate_report(samples, nanoplot_stats, quast_tsvs, busco_summaries,
 def main_snakemake(snakemake):
     """Called when invoked via Snakemake `script:` directive."""
     samples = snakemake.params.sample_names
+    repeat_method = snakemake.params.get("repeat_method", "edta")
+    annotation_method = snakemake.params.get("annotation_method", "both")
+    # Handle empty lists as None for optional inputs
+    edta_sums = list(snakemake.input.edta_summaries) or None
+    l2_tbls = list(snakemake.input.layer2_tbls) or None
+    liftoff = list(snakemake.input.liftoff_gffs) or None
+    galba = list(snakemake.input.galba_gffs) or None
     generate_report(
         samples=samples,
         nanoplot_stats=snakemake.input.nanoplot_stats,
         quast_tsvs=snakemake.input.quast_tsvs,
         busco_summaries=snakemake.input.busco_summaries,
         rejected_ids=snakemake.input.rejected_ids,
-        edta_summaries=snakemake.input.edta_summaries,
-        liftoff_gffs=snakemake.input.liftoff_gffs,
-        galba_gffs=snakemake.input.galba_gffs,
+        edta_summaries=edta_sums,
+        liftoff_gffs=liftoff,
+        galba_gffs=galba,
         annotation_stats=snakemake.input.annotation_stats,
         output_file=snakemake.output.html,
-        layer2_tbls=snakemake.input.layer2_tbls,
+        layer2_tbls=l2_tbls,
+        repeat_method=repeat_method,
+        annotation_method=annotation_method,
     )
 
 
@@ -668,6 +701,8 @@ def main_cli():
     parser.add_argument("--galba-gffs", nargs="+", required=True)
     parser.add_argument("--annotation-stats", nargs="+", required=True)
     parser.add_argument("--layer2-tbls", nargs="+", default=None)
+    parser.add_argument("--repeat-method", default="edta", choices=["edta", "tetools"])
+    parser.add_argument("--annotation-method", default="both", choices=["liftoff", "galba", "both"])
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     generate_report(
@@ -682,6 +717,8 @@ def main_cli():
         annotation_stats=args.annotation_stats,
         output_file=args.output,
         layer2_tbls=args.layer2_tbls,
+        repeat_method=args.repeat_method,
+        annotation_method=args.annotation_method,
     )
 
 

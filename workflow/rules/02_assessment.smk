@@ -62,22 +62,51 @@ rule busco_qc:
 # -----------------------------------------------------------------------------
 # 3. COMPREHENSIVE PIPELINE REPORT (indexed HTML)
 # -----------------------------------------------------------------------------
+def get_report_repeat_inputs():
+    """Return the correct repeat summary inputs for the pipeline report based on config."""
+    method = config.get("repeats", {}).get("method", "edta")
+    if method == "tetools":
+        return {
+            "edta_summaries": [],
+            "layer2_tbls": expand("results/{sample}/repeats/layer2/genome.masked.fa.tbl", sample=samples.index),
+        }
+    else:  # edta
+        return {
+            "edta_summaries": expand("results/{sample}/repeats/genome.fasta.mod.EDTA.TEanno.sum", sample=samples.index),
+            "layer2_tbls": [],
+        }
+
+def get_report_annotation_inputs():
+    """Return the correct annotation GFF inputs based on config."""
+    method = config.get("annotation", {}).get("method", "both")
+    result = {"liftoff_gffs": [], "galba_gffs": []}
+    if method in ("liftoff", "both"):
+        result["liftoff_gffs"] = expand("results/{sample}/annotation/liftoff.gff3", sample=samples.index)
+    if method in ("galba", "both"):
+        result["galba_gffs"] = expand("results/{sample}/annotation/galba.gff3", sample=samples.index)
+    return result
+
+_report_repeat_inputs = get_report_repeat_inputs()
+_report_annotation_inputs = get_report_annotation_inputs()
+
 rule generate_pipeline_report:
     input:
         nanoplot_stats   = expand("results/{sample}/qc/nanoplot/NanoStats.txt", sample=samples.index),
         quast_tsvs       = expand("results/{sample}/qc/quast/report.tsv", sample=samples.index),
         busco_summaries  = expand("results/{sample}/qc/busco/short_summary.txt", sample=samples.index),
         rejected_ids     = expand("results/{sample}/final_genome/rejected_ids.txt", sample=samples.index),
-        edta_summaries   = expand("results/{sample}/repeats/genome.fasta.mod.EDTA.TEanno.sum", sample=samples.index),
-        layer2_tbls      = expand("results/{sample}/repeats/layer2/genome.masked.fa.tbl", sample=samples.index),
-        liftoff_gffs     = expand("results/{sample}/annotation/liftoff.gff3", sample=samples.index),
-        galba_gffs       = expand("results/{sample}/annotation/galba.gff3", sample=samples.index),
+        edta_summaries   = _report_repeat_inputs["edta_summaries"],
+        layer2_tbls      = _report_repeat_inputs["layer2_tbls"],
+        liftoff_gffs     = _report_annotation_inputs["liftoff_gffs"],
+        galba_gffs       = _report_annotation_inputs["galba_gffs"],
         annotation_stats = expand("results/{sample}/annotation/stats.txt", sample=samples.index),
     output:
         html = "results/reports/index.html"
     conda:
         "../envs/quast.yaml"
     params:
-        sample_names = lambda wildcards: list(samples.index)
+        sample_names      = lambda wildcards: list(samples.index),
+        repeat_method     = config.get("repeats", {}).get("method", "edta"),
+        annotation_method = config.get("annotation", {}).get("method", "both")
     script:
         "../scripts/generate_pipeline_report.py"

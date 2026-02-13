@@ -36,9 +36,9 @@ rule liftoff_annotation:
 # -----------------------------------------------------------------------------
 rule galba_annotation:
     input:
-        # Menggunakan soft-masked genome dari double-layer RepeatMasker
+        # Menggunakan soft-masked genome dari repeat masking (EDTA atau TEtools layer2)
         # agar Augustus/GALBA dapat mengenali region repeat (best practice)
-        target   = "results/{sample}/repeats/layer2/genome.final_masked.fa",
+        target   = get_masked_genome,
         ref_prot = config["refs"]["protein"]
     output:
         gff = "results/{sample}/annotation/galba.gff3"
@@ -65,30 +65,46 @@ rule galba_annotation:
 # -----------------------------------------------------------------------------
 # 3. Summary Stats
 # -----------------------------------------------------------------------------
+
+# Helper: build annotation_stats inputs based on annotation method
+def get_annotation_stats_inputs(wildcards):
+    method = config.get("annotation", {}).get("method", "both")
+    inputs = {"repeat_summary": get_repeat_summary(wildcards)}
+    if method in ("liftoff", "both"):
+        inputs["liftoff"] = f"results/{wildcards.sample}/annotation/liftoff.gff3"
+    if method in ("galba", "both"):
+        inputs["galba"] = f"results/{wildcards.sample}/annotation/galba.gff3"
+    return inputs
+
 rule annotation_stats:
     input:
-        liftoff    = "results/{sample}/annotation/liftoff.gff3",
-        galba      = "results/{sample}/annotation/galba.gff3",
-        repeat_tbl = "results/{sample}/repeats/layer2/genome.masked.fa.tbl"
+        unpack(get_annotation_stats_inputs)
     output:
         summary = "results/{sample}/annotation/stats.txt"
+    params:
+        repeat_method     = config.get("repeats", {}).get("method", "edta"),
+        annotation_method = config.get("annotation", {}).get("method", "both")
     shell:
         """
         echo "Annotation Statistics for {wildcards.sample}" > {output.summary}
         echo "-------------------------------------------" >> {output.summary}
-        
-        echo "[LIFTOFF] Gene Count:" >> {output.summary}
-        awk '$3 == "gene"' {input.liftoff} | wc -l >> {output.summary}
-        
+        echo "Annotation method: {params.annotation_method}" >> {output.summary}
         echo "" >> {output.summary}
-        
-        echo "[GALBA] Gene Count:" >> {output.summary}
-        awk '$3 == "gene"' {input.galba} | wc -l >> {output.summary}
-        
-        echo "" >> {output.summary}
-        
-        echo "[REPEAT MASKING] Double-Layer Summary (Layer 2):" >> {output.summary}
-        cat {input.repeat_tbl} >> {output.summary}
+
+        if [ "{params.annotation_method}" = "liftoff" ] || [ "{params.annotation_method}" = "both" ]; then
+            echo "[LIFTOFF] Gene Count:" >> {output.summary}
+            awk '$3 == "gene"' {input.liftoff} | wc -l >> {output.summary}
+            echo "" >> {output.summary}
+        fi
+
+        if [ "{params.annotation_method}" = "galba" ] || [ "{params.annotation_method}" = "both" ]; then
+            echo "[GALBA] Gene Count:" >> {output.summary}
+            awk '$3 == "gene"' {input.galba} | wc -l >> {output.summary}
+            echo "" >> {output.summary}
+        fi
+
+        echo "[REPEAT MASKING] Method: {params.repeat_method}" >> {output.summary}
+        cat {input.repeat_summary} >> {output.summary}
         """
 
 # (Report generation is now handled by the unified generate_pipeline_report rule

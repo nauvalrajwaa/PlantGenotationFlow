@@ -23,20 +23,32 @@ refs:
 # 3. ANNOTATION SETTINGS
 # -----------------------------------------------------------------------------
 annotation:
-  # Metode anotasi struktural gen yang dijalankan:
-  # Pipeline selalu menjalankan Liftoff (DNA-based) + GALBA (Protein-based).
-  # GALBA otomatis menggunakan soft-masked genome dari double-layer RepeatMasker.
+  # Pilih metode anotasi struktural gen:
+  #   - "liftoff" : Hanya Liftoff (DNA-based, transfer dari referensi)
+  #   - "galba"   : Hanya GALBA (Protein-based, ab initio dengan Augustus)
+  #   - "both"    : Menjalankan keduanya (Liftoff + GALBA)
+  # GALBA otomatis menggunakan soft-masked genome dari repeat masking yang dipilih.
   method: "both"
 
 # -----------------------------------------------------------------------------
-# 3b. REPEAT MASKING — TEtools / RepeatModeler + RepeatMasker (Double-Layer)
+# 4. REPEAT MASKING
 # -----------------------------------------------------------------------------
-# Konfigurasi untuk Double-Layer Repeat Masking:
-#   Layer 1: RepeatModeler (de novo TE library) → RepeatMasker
-#   Layer 2: Curated TE library (te_lib) → RepeatMasker
-# Keduanya menggunakan soft-masking (-xsmall) agar annotation tools tetap bisa membaca sequence.
+# Pilih metode repeat masking:
+#   - "edta"    : EDTA pipeline (de novo + curated library, all-in-one)
+#   - "tetools" : Double-Layer RepeatModeler + RepeatMasker via TEtools container
+#                 Layer 1 = RepeatModeler de novo library → RepeatMasker
+#                 Layer 2 = Curated TE library → RepeatMasker
+repeats:
+  method: "tetools"  # Pilih: "edta" atau "tetools"
+
+  # --- EDTA-specific settings ---
+  # Spesies untuk EDTA. Opsi: "Rice", "Maize", atau "others" untuk tumbuhan lain.
+  species: "others"
+
+# --- TEtools-specific settings (Double-Layer RepeatMasker) ---
+# Digunakan hanya jika repeats.method = "tetools"
 tetools:
-  # Spesies target (digunakan oleh EDTA module, bukan double-layer).
+  # Spesies target untuk RepeatMasker Dfam database (jika diperlukan)
   species: "viridiplantae"
   
   # Jumlah CPU thread untuk RepeatModeler/RepeatMasker container
@@ -44,15 +56,6 @@ tetools:
   # Path ke curated TE library untuk Layer 2 masking.
   # Jika kosong/terhapus, pipeline akan fallback ke resources/TE_Library_Prep/final_curated_lib.fa
   te_lib: "resources/TE_Library_Prep/final_curated_lib.fa"
-
-# -----------------------------------------------------------------------------
-# 4. REPEAT ANALYSIS (EDTA Module)
-# -----------------------------------------------------------------------------
-# Konfigurasi untuk modul EDTA (De novo repeat annotation) berbeda dengan Tetools
-repeats:
-  # Spesies spesifik untuk EDTA. 
-  # Opsi umum: "Rice", "Maize", atau "others" untuk tumbuhan lain.
-  species: "others"
 
 # -----------------------------------------------------------------------------
 # 5. ASSEMBLY & POLISHING PARAMETERS

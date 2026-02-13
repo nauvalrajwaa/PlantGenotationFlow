@@ -11,6 +11,41 @@ wildcard_constraints:
 def get_reads(wildcards):
     return samples.loc[wildcards.sample, "reads"]
 
+# Helper: determine repeat masking targets based on config
+def get_repeat_targets():
+    method = config.get("repeats", {}).get("method", "edta")
+    if method == "tetools":
+        return expand("results/{sample}/repeats/layer2/genome.final_masked.fa", sample=samples.index)
+    else:  # default: edta
+        return expand("results/{sample}/repeats/genome.fasta.mod.MAKER.masked", sample=samples.index)
+
+# Helper: determine masked genome path for GALBA
+def get_masked_genome(wildcards):
+    method = config.get("repeats", {}).get("method", "edta")
+    if method == "tetools":
+        return f"results/{wildcards.sample}/repeats/layer2/genome.final_masked.fa"
+    else:
+        return f"results/{wildcards.sample}/repeats/genome.fasta.mod.MAKER.masked"
+
+# Helper: determine repeat summary file for annotation_stats
+def get_repeat_summary(wildcards):
+    method = config.get("repeats", {}).get("method", "edta")
+    if method == "tetools":
+        return f"results/{wildcards.sample}/repeats/layer2/genome.masked.fa.tbl"
+    else:
+        return f"results/{wildcards.sample}/repeats/genome.fasta.mod.EDTA.TEanno.sum"
+
+# Helper: determine annotation targets based on config
+def get_annotation_targets():
+    method = config.get("annotation", {}).get("method", "both")
+    targets = []
+    if method in ("liftoff", "both"):
+        targets.append(expand("results/{sample}/annotation/liftoff.gff3", sample=samples.index))
+    if method in ("galba", "both"):
+        targets.append(expand("results/{sample}/annotation/galba.gff3", sample=samples.index))
+    targets.append(expand("results/{sample}/annotation/stats.txt", sample=samples.index))
+    return targets
+
 rule all:
     input:
         # 0. Raw Read QC
@@ -24,14 +59,11 @@ rule all:
         expand("results/{sample}/qc/quast/report.html", sample=samples.index),
         expand("results/{sample}/qc/busco/short_summary.txt", sample=samples.index),
         
-        # 3. Repeats (EDTA + Double-Layer TEtools)
-        expand("results/{sample}/repeats/genome.fasta.mod.MAKER.masked", sample=samples.index),
-        expand("results/{sample}/repeats/layer2/genome.final_masked.fa", sample=samples.index),
+        # 3. Repeats (conditional: EDTA or TEtools double-layer)
+        get_repeat_targets(),
         
-        # 4. Annotation (Liftoff + Galba + Stats)
-        expand("results/{sample}/annotation/liftoff.gff3", sample=samples.index),
-        expand("results/{sample}/annotation/galba.gff3", sample=samples.index),
-        expand("results/{sample}/annotation/stats.txt", sample=samples.index),
+        # 4. Annotation (conditional: liftoff, galba, or both)
+        get_annotation_targets(),
 
         # 5. Final Pipeline Report (indexed HTML)
         "results/reports/index.html"
