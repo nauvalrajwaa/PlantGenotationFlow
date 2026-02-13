@@ -5,12 +5,12 @@ rule nanoplot_qc:
     input:
         get_reads
     output:
-        report = "results/qc/nanoplot/{sample}/NanoPlot-report.html",
-        stats  = "results/qc/nanoplot/{sample}/NanoStats.txt"
+        report = "results/{sample}/qc/nanoplot/NanoPlot-report.html",
+        stats  = "results/{sample}/qc/nanoplot/NanoStats.txt"
     conda:
         "../envs/qc.yaml"
     params:
-        outdir = directory("results/qc/nanoplot/{sample}")
+        outdir = directory("results/{sample}/qc/nanoplot")
     threads: 8
     shell:
         """

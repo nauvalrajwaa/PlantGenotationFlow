@@ -4,13 +4,13 @@
 rule liftoff_annotation:
     input:
         # Mengambil input dari hasil bersih Tiara
-        target    = "results/final_genome/{sample}_final_clean.fasta",
+        target    = "results/{sample}/final_genome/final_clean.fasta",
         ref_fasta = config["refs"]["genome"],
         ref_gff   = config["refs"]["gff"]
     output:
-        gff         = "results/annotation/{sample}_liftoff.gff3",
-        unmapped    = "results/annotation/{sample}_liftoff_unmapped.txt",
-        polypeptide = "results/annotation/{sample}_liftoff_protein.fasta"
+        gff         = "results/{sample}/annotation/liftoff.gff3",
+        unmapped    = "results/{sample}/annotation/liftoff_unmapped.txt",
+        polypeptide = "results/{sample}/annotation/liftoff_protein.fasta"
     conda:
         "../envs/annotation.yaml"
     threads: 32
@@ -37,17 +37,17 @@ rule liftoff_annotation:
 rule galba_annotation:
     input:
         # Mengambil input dari hasil bersih Tiara
-        target   = "results/final_genome/{sample}_final_clean.fasta",
+        target   = "results/{sample}/final_genome/final_clean.fasta",
         ref_prot = config["refs"]["protein"]
     output:
-        gff = "results/annotation/{sample}_galba.gff3"
+        gff = "results/{sample}/annotation/galba.gff3"
     container:
         "docker://katharinahoff/galba-notebook:latest"
     threads: 32
     shell:
         """
         # Setup folder config sementara untuk Augustus agar writable
-        export AUGUSTUS_CONFIG_PATH="results/annotation/augustus_config_{wildcards.sample}"
+        export AUGUSTUS_CONFIG_PATH="results/{wildcards.sample}/annotation/augustus_config"
         mkdir -p $AUGUSTUS_CONFIG_PATH
         cp -r /usr/share/augustus/config/* $AUGUSTUS_CONFIG_PATH/
         
@@ -66,31 +66,31 @@ rule galba_annotation:
 # -----------------------------------------------------------------------------
 rule tetools_annotation:
     input:
-        target = "results/final_genome/{sample}_final_clean.fasta"
+        target = "results/{sample}/final_genome/final_clean.fasta"
     output:
-        masked = "results/annotation/{sample}_tetools.fasta.masked",
-        tbl    = "results/annotation/{sample}_tetools.fasta.tbl",
-        out    = "results/annotation/{sample}_tetools.fasta.out"
+        masked = "results/{sample}/annotation/tetools.fasta.masked",
+        tbl    = "results/{sample}/annotation/tetools.fasta.tbl",
+        out    = "results/{sample}/annotation/tetools.fasta.out"
     container:
         "docker://dfam/tetools:latest"
     threads: 8
     params:
         species = config["tetools"]["species"],
-        dir     = "results/annotation"
+        dir     = "results/{sample}/annotation"
     shell:
         """
         # Copy input untuk konsistensi output naming
-        cp {input.target} {params.dir}/{wildcards.sample}_tetools.fasta
+        cp {input.target} {params.dir}/tetools.fasta
         
         # Run RepeatMasker dengan tetools
         RepeatMasker \
             -pa {threads} \
             -species "{params.species}" \
             -dir {params.dir} \
-            {params.dir}/{wildcards.sample}_tetools.fasta
+            {params.dir}/tetools.fasta
         
         # Cleanup temporary file
-        rm {params.dir}/{wildcards.sample}_tetools.fasta
+        rm {params.dir}/tetools.fasta
         """
 
 # -----------------------------------------------------------------------------
@@ -98,11 +98,11 @@ rule tetools_annotation:
 # -----------------------------------------------------------------------------
 rule annotation_stats:
     input:
-        liftoff = "results/annotation/{sample}_liftoff.gff3",
-        galba   = "results/annotation/{sample}_galba.gff3",
-        tetools = "results/annotation/{sample}_tetools.fasta.tbl"
+        liftoff = "results/{sample}/annotation/liftoff.gff3",
+        galba   = "results/{sample}/annotation/galba.gff3",
+        tetools = "results/{sample}/annotation/tetools.fasta.tbl"
     output:
-        summary = "results/annotation/{sample}_stats.txt"
+        summary = "results/{sample}/annotation/stats.txt"
     shell:
         """
         echo "Annotation Statistics for {wildcards.sample}" > {output.summary}
@@ -122,26 +122,5 @@ rule annotation_stats:
         tail -3 {input.tetools} >> {output.summary}
         """
 
-# -----------------------------------------------------------------------------
-# 5. FINAL HTML REPORT (Visualization)
-# -----------------------------------------------------------------------------
-rule generate_annotation_report:
-    input:
-        liftoff_files = expand("results/annotation/{sample}_liftoff.gff3", sample=samples.index),
-        galba_files   = expand("results/annotation/{sample}_galba.gff3", sample=samples.index),
-        tetools_files = expand("results/annotation/{sample}_tetools.fasta.tbl", sample=samples.index)
-    output:
-        html = "results/annotation/Final_Annotation_Report.html"
-    conda:
-        "../envs/annotation.yaml"
-    params:
-        sample_list = lambda wildcards, input: " ".join(samples.index)
-    shell:
-        """
-        python workflow/scripts/generate_annotation_report.py \
-            --liftoff {input.liftoff_files} \
-            --galba {input.galba_files} \
-            --tetools {input.tetools_files} \
-            --samples {params.sample_list} \
-            --output {output.html}
-        """
+# (Report generation is now handled by the unified generate_pipeline_report rule
+#  in 02_assessment.smk → results/reports/index.html)

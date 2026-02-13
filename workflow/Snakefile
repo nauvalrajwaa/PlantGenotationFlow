@@ -14,28 +14,26 @@ def get_reads(wildcards):
 rule all:
     input:
         # 0. Raw Read QC
-        expand("results/qc/nanoplot/{sample}/NanoPlot-report.html", sample=samples.index),
+        expand("results/{sample}/qc/nanoplot/NanoPlot-report.html", sample=samples.index),
 
-        # 1. Decontamination Outputs 
-        # (Hanya meminta final output, JANGAN meminta intermediate/contam file)
-        expand("results/final_genome/{sample}_final_clean.fasta", sample=samples.index),
-        expand("results/final_genome/{sample}_rejected_ids.txt", sample=samples.index),
+        # 1. Decontamination Outputs
+        expand("results/{sample}/final_genome/final_clean.fasta", sample=samples.index),
+        expand("results/{sample}/final_genome/rejected_ids.txt", sample=samples.index),
         
         # 2. QC Outputs
-        expand("results/qc/quast/{sample}/report.html", sample=samples.index),
-        expand("results/qc/busco/{sample}/short_summary.txt", sample=samples.index),
+        expand("results/{sample}/qc/quast/report.html", sample=samples.index),
+        expand("results/{sample}/qc/busco/short_summary.txt", sample=samples.index),
         
         # 3. Repeats (EDTA)
-        expand("results/repeats/{sample}/genome.fasta.mod.MAKER.masked", sample=samples.index),
+        expand("results/{sample}/repeats/genome.fasta.mod.MAKER.masked", sample=samples.index),
         
         # 4. Annotation (Liftoff + Galba + Stats)
-        expand("results/annotation/{sample}_liftoff.gff3", sample=samples.index),
-        expand("results/annotation/{sample}_galba.gff3", sample=samples.index),
-        expand("results/annotation/{sample}_stats.txt", sample=samples.index),
+        expand("results/{sample}/annotation/liftoff.gff3", sample=samples.index),
+        expand("results/{sample}/annotation/galba.gff3", sample=samples.index),
+        expand("results/{sample}/annotation/stats.txt", sample=samples.index),
 
-        # 5. Final Assessment Report
-        "results/qc/Final_Genome_Assessment.html",
-        "results/annotation/Final_Annotation_Report.html"
+        # 5. Final Pipeline Report (indexed HTML)
+        "results/reports/index.html"
 
 # Load Rules
 include: "rules/00_qc.smk"

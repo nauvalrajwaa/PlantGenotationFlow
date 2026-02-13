@@ -3,16 +3,16 @@
 # -----------------------------------------------------------------------------
 rule quast_qc:
     input:
-        assembly = "results/medaka/{sample}/consensus.fasta",
-        final    = "results/final_genome/{sample}_final_clean.fasta",
+        assembly = "results/{sample}/medaka/consensus.fasta",
+        final    = "results/{sample}/final_genome/final_clean.fasta",
         ref      = config["refs"]["genome"]
     output:
-        report_html = "results/qc/quast/{sample}/report.html",
-        report_tsv  = "results/qc/quast/{sample}/report.tsv"
+        report_html = "results/{sample}/qc/quast/report.html",
+        report_tsv  = "results/{sample}/qc/quast/report.tsv"
     conda:
         "../envs/quast.yaml"
     params:
-        outdir = directory("results/qc/quast/{sample}")
+        outdir = directory("results/{sample}/qc/quast")
     threads: 8
     shell:
         """
@@ -31,10 +31,10 @@ rule quast_qc:
 # -----------------------------------------------------------------------------
 rule busco_qc:
     input:
-        "results/final_genome/{sample}_final_clean.fasta"
+        "results/{sample}/final_genome/final_clean.fasta"
     output:
-        summary = "results/qc/busco/{sample}/short_summary.txt",
-        outdir  = directory("results/qc/busco/{sample}")
+        summary = "results/{sample}/qc/busco/short_summary.txt",
+        outdir  = directory("results/{sample}/qc/busco")
     conda:
         "../envs/busco.yaml"
     params:
@@ -48,32 +48,35 @@ rule busco_qc:
         busco -i {input} \
               -l {params.lineage} \
               -o {wildcards.sample} \
-              --out_path results/qc/busco/ \
+              --out_path results/{wildcards.sample}/qc/busco_tmp/ \
               -m {params.mode} \
               -c {threads} \
               --force
         
-        # Rename default busco output dir to match expected output
-        mv results/qc/busco/{wildcards.sample} {output.outdir}
+        # Move busco output to expected location
+        mv results/{wildcards.sample}/qc/busco_tmp/{wildcards.sample} {output.outdir}
+        rm -rf results/{wildcards.sample}/qc/busco_tmp
         mv {output.outdir}/short_summary.*.txt {output.summary}
         """
 
 # -----------------------------------------------------------------------------
-# 3. FINAL AGGREGATE REPORT (BARU)
+# 3. COMPREHENSIVE PIPELINE REPORT (indexed HTML)
 # -----------------------------------------------------------------------------
-rule generate_assessment_report:
+rule generate_pipeline_report:
     input:
-        # Mengumpulkan hasil dari SEMUA sampel
-        quast_files = expand("results/qc/quast/{sample}/report.tsv", sample=samples.index),
-        busco_files = expand("results/qc/busco/{sample}/short_summary.txt", sample=samples.index)
+        nanoplot_stats   = expand("results/{sample}/qc/nanoplot/NanoStats.txt", sample=samples.index),
+        quast_tsvs       = expand("results/{sample}/qc/quast/report.tsv", sample=samples.index),
+        busco_summaries  = expand("results/{sample}/qc/busco/short_summary.txt", sample=samples.index),
+        rejected_ids     = expand("results/{sample}/final_genome/rejected_ids.txt", sample=samples.index),
+        edta_summaries   = expand("results/{sample}/repeats/genome.fasta.mod.EDTA.TEanno.sum", sample=samples.index),
+        liftoff_gffs     = expand("results/{sample}/annotation/liftoff.gff3", sample=samples.index),
+        galba_gffs       = expand("results/{sample}/annotation/galba.gff3", sample=samples.index),
+        annotation_stats = expand("results/{sample}/annotation/stats.txt", sample=samples.index),
     output:
-        html = "results/qc/Final_Genome_Assessment.html"
-    # Menggunakan env quast saja karena sudah ada pandas
+        html = "results/reports/index.html"
     conda:
         "../envs/quast.yaml"
     params:
-        # Mengirim daftar nama sampel ke script python
         sample_names = lambda wildcards: list(samples.index)
     script:
-        # Lokasi script python yang tadi dibuat
-        "../scripts/generate_assessment.py"
+        "../scripts/generate_pipeline_report.py"

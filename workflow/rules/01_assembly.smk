@@ -6,9 +6,9 @@
 def get_raw_assembly(wildcards):
     method = config["assembly"]["method"]
     if method == "flye":
-        return f"results/assembly/flye/{wildcards.sample}/assembly.fasta"
+        return f"results/{wildcards.sample}/assembly/flye/assembly.fasta"
     elif method == "hifiasm":
-        return f"results/assembly/hifiasm/{wildcards.sample}/assembly.fasta"
+        return f"results/{wildcards.sample}/assembly/hifiasm/assembly.fasta"
     else:
         raise ValueError(f"Unknown assembly method in config: {method}")
 
@@ -17,14 +17,14 @@ rule flye_assembly:
     input:
         get_reads
     output:
-        fasta = "results/assembly/flye/{sample}/assembly.fasta",
-        info  = "results/assembly/flye/{sample}/assembly_info.txt"
+        fasta = "results/{sample}/assembly/flye/assembly.fasta",
+        info  = "results/{sample}/assembly/flye/assembly_info.txt"
     conda:
         "../envs/assembly.yaml"
     params:
         mode   = config["assembly"]["flye"]["mode"],
         g_size = config["assembly"]["flye"]["genome_size"],
-        outdir = directory("results/assembly/flye/{sample}")
+        outdir = directory("results/{sample}/assembly/flye")
     threads: 32
     shell:
         """
@@ -43,13 +43,13 @@ rule hifiasm_assembly:
     input:
         get_reads
     output:
-        primary_gfa = "results/assembly/hifiasm/{sample}/{sample}.asm.bp.p_ctg.gfa",
-        fasta       = "results/assembly/hifiasm/{sample}/assembly.fasta"
+        primary_gfa = "results/{sample}/assembly/hifiasm/{sample}.asm.bp.p_ctg.gfa",
+        fasta       = "results/{sample}/assembly/hifiasm/assembly.fasta"
     conda:
         "../envs/assembly.yaml"
     params:
         extra_args = config["assembly"]["hifiasm"]["extra_args"],
-        prefix     = "results/assembly/hifiasm/{sample}/{sample}.asm"
+        prefix     = "results/{sample}/assembly/hifiasm/{sample}.asm"
     threads: 32
     shell:
         """
@@ -70,7 +70,7 @@ rule select_assembly:
     input:
         get_raw_assembly
     output:
-        "results/assembly/{sample}/assembly.fasta"
+        "results/{sample}/assembly/selected/assembly.fasta"
     shell:
         """
         cp {input} {output}
@@ -78,16 +78,16 @@ rule select_assembly:
 
 rule medaka_polishing:
     input:
-        draft = "results/assembly/{sample}/assembly.fasta",
+        draft = "results/{sample}/assembly/selected/assembly.fasta",
         reads = get_reads
     output:
-        consensus = "results/medaka/{sample}/consensus.fasta"
+        consensus = "results/{sample}/medaka/consensus.fasta"
     # Menggunakan container alih-alih conda untuk menghindari error dependensi Medaka yang terkenal sulit
     container:
         "docker://ontresearch/medaka:v1.11.3"
     params:
         model = config["medaka"]["model"],
-        outdir = directory("results/medaka/{sample}")
+        outdir = directory("results/{sample}/medaka")
     threads: 16
     shell:
         """

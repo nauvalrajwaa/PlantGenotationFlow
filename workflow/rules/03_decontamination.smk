@@ -22,12 +22,12 @@ rule fcs_setup:
 # 1.b. Screening (Mencari Adapter)
 rule fcs_screen:
     input:
-        assembly = "results/medaka/{sample}/consensus.fasta",
+        assembly = "results/{sample}/medaka/consensus.fasta",
         wrapper  = "resources/fcs/run_fcsadaptor.sh",
         sif      = "resources/fcs/fcs-adaptor.sif"
     output:
-        report_dir = directory("results/fcs_adaptor/{sample}_report"),
-        report_txt = "results/fcs_adaptor/{sample}_report/fcs_adaptor_report.txt"
+        report_dir = directory("results/{sample}/decontamination/fcs/report"),
+        report_txt = "results/{sample}/decontamination/fcs/report/fcs_adaptor_report.txt"
     threads: 8
     params:
         tax_group = "--euk" 
@@ -47,12 +47,12 @@ rule fcs_screen:
 # 1.c. Cleaning (Membuang Adapter) - MODE FCS-GX (SESUAI DOKUMEN)
 rule fcs_clean:
     input:
-        assembly = "results/medaka/{sample}/consensus.fasta",
-        report   = "results/fcs_adaptor/{sample}_report/fcs_adaptor_report.txt",
+        assembly = "results/{sample}/medaka/consensus.fasta",
+        report   = "results/{sample}/decontamination/fcs/report/fcs_adaptor_report.txt",
         cleaner  = "resources/fcs/fcs.py"
     output:
-        clean_fasta  = "results/fcs_adaptor/{sample}_clean.fasta",
-        contam_fasta = "results/fcs_adaptor/{sample}_contam.fasta"
+        clean_fasta  = "results/{sample}/decontamination/fcs/clean.fasta",
+        contam_fasta = "results/{sample}/decontamination/fcs/contam.fasta"
     params:
         # URL resmi NCBI untuk image cleaner (GX)
         gx_url = "https://ftp.ncbi.nlm.nih.gov/genomes/TOOLS/FCS/releases/latest/fcs-gx.sif",
@@ -87,10 +87,10 @@ rule fcs_clean:
 # 2.a. Classification (Menebak Organisme Contig)
 rule tiara_classification:
     input:
-        fasta = "results/fcs_adaptor/{sample}_clean.fasta"
+        fasta = "results/{sample}/decontamination/fcs/clean.fasta"
     output:
-        classification = "results/tiara/{sample}/classification.txt",
-        prob           = "results/tiara/{sample}/probabilities.txt"
+        classification = "results/{sample}/decontamination/tiara/classification.txt",
+        prob           = "results/{sample}/decontamination/tiara/probabilities.txt"
     conda:
         "../envs/decon.yaml"
     threads: 8
@@ -106,7 +106,7 @@ rule tiara_classification:
 
         # 2. FAIL-SAFE LOGIC (Logika Pengaman)
         # Cari file probabilities yang mungkin digenerate dengan nama aneh
-        FOUND=$(find results/tiara/{wildcards.sample} -name "*probabilities.txt" | head -n 1)
+        FOUND=$(find results/{wildcards.sample}/decontamination/tiara -name "*probabilities.txt" | head -n 1)
         
         if [ -n "$FOUND" ]; then
             # Jika ketemu, rename sesuai keinginan Snakemake
@@ -123,20 +123,20 @@ rule tiara_classification:
 # (Bagian ini TIDAK PERLU DIUBAH, tapi pastikan inputnya benar)
 rule tiara_filtering:
     input:
-        fasta          = "results/fcs_adaptor/{sample}_clean.fasta",
-        classification = "results/tiara/{sample}/classification.txt"
+        fasta          = "results/{sample}/decontamination/fcs/clean.fasta",
+        classification = "results/{sample}/decontamination/tiara/classification.txt"
     output:
-        final_genome = "results/final_genome/{sample}_final_clean.fasta",
-        rejected_ids = "results/final_genome/{sample}_rejected_ids.txt"
+        final_genome = "results/{sample}/final_genome/final_clean.fasta",
+        rejected_ids = "results/{sample}/final_genome/rejected_ids.txt"
     conda:
         "../envs/decon.yaml"
     shell:
         """
         # 1. Buat daftar ID yang disimpan (Eukarya + Organel tumbuhan)
-        awk '$2 == "eukarya" || $2 == "mitochondria" || $2 == "plastid" {{print $1}}' {input.classification} > results/tiara/{wildcards.sample}/keep_list.txt
+        awk '$2 == "eukarya" || $2 == "mitochondria" || $2 == "plastid" {{print $1}}' {input.classification} > results/{wildcards.sample}/decontamination/tiara/keep_list.txt
         
         # 2. Filter FASTA
-        seqkit grep -f results/tiara/{wildcards.sample}/keep_list.txt {input.fasta} > {output.final_genome}
+        seqkit grep -f results/{wildcards.sample}/decontamination/tiara/keep_list.txt {input.fasta} > {output.final_genome}
         
         # 3. Log reject
         awk '$2 != "eukarya" && $2 != "mitochondria" && $2 != "plastid" {{print $0}}' {input.classification} > {output.rejected_ids}
