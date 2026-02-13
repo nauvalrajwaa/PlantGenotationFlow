@@ -4,7 +4,7 @@ configfile: "config/config.yaml"
 
 samples = pd.read_csv(config["samples"], sep="\t").set_index("sample", drop=False)
 
-# Cegah wildcard 'sample' mengandung slash '/' untuk menghindari siklus tak terbatas
+# Cegah wildcard 'sample' mengandung slash '/'
 wildcard_constraints:
     sample="[^/]+"
 
@@ -16,11 +16,12 @@ rule all:
         # 0. Raw Read QC
         expand("results/qc/nanoplot/{sample}/NanoPlot-report.html", sample=samples.index),
 
-        # 1. Decontamination Outputs (Cek hasil bersih)
+        # 1. Decontamination Outputs 
+        # (Hanya meminta final output, JANGAN meminta intermediate/contam file)
         expand("results/final_genome/{sample}_final_clean.fasta", sample=samples.index),
         expand("results/final_genome/{sample}_rejected_ids.txt", sample=samples.index),
         
-        # 2. QC Outputs (Cek kualitas assembly awal vs akhir jika mau)
+        # 2. QC Outputs
         expand("results/qc/quast/{sample}/report.html", sample=samples.index),
         expand("results/qc/busco/{sample}/short_summary.txt", sample=samples.index),
         
@@ -34,7 +35,6 @@ rule all:
 
         # 5. Final Assessment Report
         "results/qc/Final_Genome_Assessment.html",
-        # ---> REPORT HTML BARU <---
         "results/annotation/Final_Annotation_Report.html"
 
 # Load Rules

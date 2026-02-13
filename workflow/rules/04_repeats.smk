@@ -65,7 +65,8 @@ rule edta_masking:
                 --sensitive 1 \
                 --anno 1 \
                 --threads {threads} \
-                --overwrite 1
+                --overwrite 0 \
+                --force 1
         
         # Output otomatis tersimpan di folder ini
         """
