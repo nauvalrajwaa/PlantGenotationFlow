@@ -69,6 +69,7 @@ rule generate_pipeline_report:
         busco_summaries  = expand("results/{sample}/qc/busco/short_summary.txt", sample=samples.index),
         rejected_ids     = expand("results/{sample}/final_genome/rejected_ids.txt", sample=samples.index),
         edta_summaries   = expand("results/{sample}/repeats/genome.fasta.mod.EDTA.TEanno.sum", sample=samples.index),
+        layer2_tbls      = expand("results/{sample}/repeats/layer2/genome.masked.fa.tbl", sample=samples.index),
         liftoff_gffs     = expand("results/{sample}/annotation/liftoff.gff3", sample=samples.index),
         galba_gffs       = expand("results/{sample}/annotation/galba.gff3", sample=samples.index),
         annotation_stats = expand("results/{sample}/annotation/stats.txt", sample=samples.index),

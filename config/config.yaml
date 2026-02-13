@@ -23,23 +23,25 @@ refs:
 # 3. ANNOTATION SETTINGS
 # -----------------------------------------------------------------------------
 annotation:
-  # Pilih skenario/metode anotasi yang ingin dijalankan:
-  # - "liftoff" : Anotasi gen berbasis DNA transfer (Mapping based)
-  # - "tetools" : Anotasi repeat elements menggunakan RepeatMasker (Tetools Dfam)
-  # - "both"    : Menjalankan keduanya (Liftoff + Tetools)
-  method: "liftoff"
+  # Metode anotasi struktural gen yang dijalankan:
+  # Pipeline selalu menjalankan Liftoff (DNA-based) + GALBA (Protein-based).
+  # GALBA otomatis menggunakan soft-masked genome dari double-layer RepeatMasker.
+  method: "both"
 
-# Konfigurasi spesifik untuk Tetools (RepeatMasker via Dfam Container)
-# Digunakan jika annotation: method adalah "tetools" atau "both"
+# -----------------------------------------------------------------------------
+# 3b. REPEAT MASKING — TEtools / RepeatModeler + RepeatMasker (Double-Layer)
+# -----------------------------------------------------------------------------
+# Konfigurasi untuk Double-Layer Repeat Masking:
+#   Layer 1: RepeatModeler (de novo TE library) → RepeatMasker
+#   Layer 2: Curated TE library (te_lib) → RepeatMasker
+# Keduanya menggunakan soft-masking (-xsmall) agar annotation tools tetap bisa membaca sequence.
 tetools:
-  # Spesies target untuk library repeat. 
-  # Contoh: "viridiplantae" (tumbuhan umum), "Oryza sativa", "Arabidopsis".
-  # Cek ketersediaan di RepBase/Dfam.
+  # Spesies target (digunakan oleh EDTA module, bukan double-layer).
   species: "viridiplantae"
   
-  # Jumlah CPU thread yang dialokasikan untuk container Tetools
+  # Jumlah CPU thread untuk RepeatModeler/RepeatMasker container
   threads: 8
-  # Path ke library TE yang sudah Anda siapkan (opsional).
+  # Path ke curated TE library untuk Layer 2 masking.
   # Jika kosong/terhapus, pipeline akan fallback ke resources/TE_Library_Prep/final_curated_lib.fa
   te_lib: "resources/TE_Library_Prep/final_curated_lib.fa"
 

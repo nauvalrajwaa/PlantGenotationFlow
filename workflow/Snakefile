@@ -24,8 +24,9 @@ rule all:
         expand("results/{sample}/qc/quast/report.html", sample=samples.index),
         expand("results/{sample}/qc/busco/short_summary.txt", sample=samples.index),
         
-        # 3. Repeats (EDTA)
+        # 3. Repeats (EDTA + Double-Layer TEtools)
         expand("results/{sample}/repeats/genome.fasta.mod.MAKER.masked", sample=samples.index),
+        expand("results/{sample}/repeats/layer2/genome.final_masked.fa", sample=samples.index),
         
         # 4. Annotation (Liftoff + Galba + Stats)
         expand("results/{sample}/annotation/liftoff.gff3", sample=samples.index),

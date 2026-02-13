@@ -36,8 +36,9 @@ rule liftoff_annotation:
 # -----------------------------------------------------------------------------
 rule galba_annotation:
     input:
-        # Mengambil input dari hasil bersih Tiara
-        target   = "results/{sample}/final_genome/final_clean.fasta",
+        # Menggunakan soft-masked genome dari double-layer RepeatMasker
+        # agar Augustus/GALBA dapat mengenali region repeat (best practice)
+        target   = "results/{sample}/repeats/layer2/genome.final_masked.fa",
         ref_prot = config["refs"]["protein"]
     output:
         gff = "results/{sample}/annotation/galba.gff3"
@@ -62,45 +63,13 @@ rule galba_annotation:
         """
 
 # -----------------------------------------------------------------------------
-# 3. TETOOLS (Dfam RepeatMasker - Repeat Detection) via DOCKER
-# -----------------------------------------------------------------------------
-rule tetools_annotation:
-    input:
-        target = "results/{sample}/final_genome/final_clean.fasta"
-    output:
-        masked = "results/{sample}/annotation/tetools.fasta.masked",
-        tbl    = "results/{sample}/annotation/tetools.fasta.tbl",
-        out    = "results/{sample}/annotation/tetools.fasta.out"
-    container:
-        "docker://dfam/tetools:latest"
-    threads: 8
-    params:
-        species = config["tetools"]["species"],
-        dir     = "results/{sample}/annotation"
-    shell:
-        """
-        # Copy input untuk konsistensi output naming
-        cp {input.target} {params.dir}/tetools.fasta
-        
-        # Run RepeatMasker dengan tetools
-        RepeatMasker \
-            -pa {threads} \
-            -species "{params.species}" \
-            -dir {params.dir} \
-            {params.dir}/tetools.fasta
-        
-        # Cleanup temporary file
-        rm {params.dir}/tetools.fasta
-        """
-
-# -----------------------------------------------------------------------------
-# 4. Summary Stats
+# 3. Summary Stats
 # -----------------------------------------------------------------------------
 rule annotation_stats:
     input:
-        liftoff = "results/{sample}/annotation/liftoff.gff3",
-        galba   = "results/{sample}/annotation/galba.gff3",
-        tetools = "results/{sample}/annotation/tetools.fasta.tbl"
+        liftoff    = "results/{sample}/annotation/liftoff.gff3",
+        galba      = "results/{sample}/annotation/galba.gff3",
+        repeat_tbl = "results/{sample}/repeats/layer2/genome.masked.fa.tbl"
     output:
         summary = "results/{sample}/annotation/stats.txt"
     shell:
@@ -118,8 +87,8 @@ rule annotation_stats:
         
         echo "" >> {output.summary}
         
-        echo "[TETOOLS] Repeat Summary:" >> {output.summary}
-        tail -3 {input.tetools} >> {output.summary}
+        echo "[REPEAT MASKING] Double-Layer Summary (Layer 2):" >> {output.summary}
+        cat {input.repeat_tbl} >> {output.summary}
         """
 
 # (Report generation is now handled by the unified generate_pipeline_report rule

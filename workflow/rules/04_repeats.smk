@@ -93,3 +93,126 @@ rule edta_masking:
             echo "WARNING: EDTA exited with code $EDTA_EXIT but all required outputs are present. Continuing." >&2
         fi
         """
+
+
+# =============================================================================
+# DOUBLE-LAYER REPEAT MASKING (TEtools: RepeatModeler + RepeatMasker)
+# =============================================================================
+# Strategy:
+#   Layer 1: Build de novo TE library with RepeatModeler, then mask with RepeatMasker
+#   Layer 2: Mask the Layer-1 output again using the curated TE library
+#   Both layers use soft-masking (-xsmall) so downstream annotation tools
+#   (e.g. GALBA/BRAKER) can still read the sequence.
+# =============================================================================
+
+# --- Step 1: Build RepeatModeler Database ---
+rule repeatmodeler_build:
+    input:
+        genome = "results/{sample}/final_genome/final_clean.fasta"
+    output:
+        nsq = "results/{sample}/repeats/repeatmodeler/{sample}.nsq"
+    container:
+        "docker://dfam/tetools:latest"
+    params:
+        db_prefix = "results/{sample}/repeats/repeatmodeler/{sample}"
+    threads: 4
+    shell:
+        """
+        mkdir -p $(dirname {params.db_prefix})
+        BuildDatabase -name {params.db_prefix} {input.genome}
+        """
+
+# --- Step 2: Run RepeatModeler (de novo TE library construction) ---
+rule repeatmodeler_run:
+    input:
+        nsq = "results/{sample}/repeats/repeatmodeler/{sample}.nsq"
+    output:
+        lib = "results/{sample}/repeats/repeatmodeler/{sample}-families.fa"
+    container:
+        "docker://dfam/tetools:latest"
+    params:
+        workdir = "results/{sample}/repeats/repeatmodeler"
+    threads: 16
+    shell:
+        """
+        # Use absolute path to avoid issues inside containers
+        ABSDIR="$(cd {params.workdir} && pwd)"
+        cd "$ABSDIR"
+
+        RepeatModeler -database {wildcards.sample} \
+                      -threads {threads} \
+                      -LTRStruct
+
+        # Verify output exists
+        if [ ! -f {wildcards.sample}-families.fa ]; then
+            echo "ERROR: RepeatModeler did not produce {wildcards.sample}-families.fa" >&2
+            ls -la
+            exit 1
+        fi
+        """
+
+# --- Step 3: RepeatMasker Layer 1 (de novo RepeatModeler library) ---
+rule repeatmasker_layer1:
+    input:
+        genome = "results/{sample}/final_genome/final_clean.fasta",
+        lib    = "results/{sample}/repeats/repeatmodeler/{sample}-families.fa"
+    output:
+        masked = "results/{sample}/repeats/layer1/genome.fa.masked",
+        out    = "results/{sample}/repeats/layer1/genome.fa.out",
+        tbl    = "results/{sample}/repeats/layer1/genome.fa.tbl"
+    container:
+        "docker://dfam/tetools:latest"
+    params:
+        outdir = "results/{sample}/repeats/layer1"
+    threads: 8
+    shell:
+        """
+        mkdir -p {params.outdir}
+        cp {input.genome} {params.outdir}/genome.fa
+
+        RepeatMasker -pa {threads} \
+                     -lib {input.lib} \
+                     -dir {params.outdir} \
+                     -xsmall \
+                     -gff \
+                     {params.outdir}/genome.fa
+
+        # Fallback: if RepeatMasker found zero repeats, .masked may not exist
+        if [ ! -f {output.masked} ]; then
+            cp {params.outdir}/genome.fa {output.masked}
+        fi
+        """
+
+# --- Step 4: RepeatMasker Layer 2 (curated TE library) ---
+rule repeatmasker_layer2:
+    input:
+        masked = "results/{sample}/repeats/layer1/genome.fa.masked",
+        lib    = config.get("tetools", {}).get("te_lib", "resources/TE_Library_Prep/final_curated_lib.fa")
+    output:
+        masked = "results/{sample}/repeats/layer2/genome.final_masked.fa",
+        out    = "results/{sample}/repeats/layer2/genome.masked.fa.out",
+        tbl    = "results/{sample}/repeats/layer2/genome.masked.fa.tbl"
+    container:
+        "docker://dfam/tetools:latest"
+    params:
+        outdir = "results/{sample}/repeats/layer2"
+    threads: 8
+    shell:
+        """
+        mkdir -p {params.outdir}
+        cp {input.masked} {params.outdir}/genome.masked.fa
+
+        RepeatMasker -pa {threads} \
+                     -lib {input.lib} \
+                     -dir {params.outdir} \
+                     -xsmall \
+                     -gff \
+                     {params.outdir}/genome.masked.fa
+
+        # Rename final output; fallback if no new repeats found in layer 2
+        if [ -f {params.outdir}/genome.masked.fa.masked ]; then
+            mv {params.outdir}/genome.masked.fa.masked {output.masked}
+        else
+            cp {params.outdir}/genome.masked.fa {output.masked}
+        fi
+        """

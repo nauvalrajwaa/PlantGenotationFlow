@@ -481,13 +481,39 @@ def section_decontamination(samples, rejected_files):
     return html
 
 
-def section_repeats(samples, edta_summary_files):
-    """Section 4: Repeat Masking (EDTA)."""
-    html = '<section id="repeats">\n'
-    html += '  <h2>Repeat Masking (EDTA)</h2>\n'
+def parse_repeatmasker_tbl(tbl_file):
+    """Parse RepeatMasker .tbl summary into a list of dicts."""
+    rows = []
+    text = safe_read(tbl_file)
+    if not text:
+        return rows
+    capture = False
+    for line in text.splitlines():
+        # Start capturing after the dashed separator line
+        if line.strip().startswith("---"):
+            capture = True
+            continue
+        if capture and line.strip():
+            cols = line.strip().split()
+            if len(cols) >= 3 and not cols[0].startswith("="):
+                rows.append({
+                    "type": cols[0],
+                    "count": cols[1] if len(cols) > 1 else "",
+                    "bp": cols[2] if len(cols) > 2 else "",
+                    "pct": cols[3] if len(cols) > 3 else "",
+                })
+    return rows
 
+
+def section_repeats(samples, edta_summary_files, layer2_tbl_files=None):
+    """Section 4: Repeat Masking (EDTA + Double-Layer RepeatMasker)."""
+    html = '<section id="repeats">\n'
+    html += '  <h2>Repeat Masking</h2>\n'
+
+    # --- EDTA ---
+    html += '  <h3>EDTA (de novo TE annotation)</h3>\n'
     for sample, sf in zip(samples, edta_summary_files):
-        html += f'  <h3 id="sample-{sample}">{sample}</h3>\n'
+        html += f'  <h4 id="sample-{sample}">{sample}</h4>\n'
         rows = parse_edta_summary(sf)
         if rows:
             html += '  <div class="card"><table>\n'
@@ -497,6 +523,17 @@ def section_repeats(samples, edta_summary_files):
             html += '  </table></div>\n'
         else:
             html += '  <div class="card"><p>EDTA summary not available or could not be parsed.</p></div>\n'
+
+    # --- Double-Layer RepeatMasker ---
+    if layer2_tbl_files:
+        html += '  <h3>Double-Layer RepeatMasker (Layer 2 — Curated Library)</h3>\n'
+        for sample, tf in zip(samples, layer2_tbl_files):
+            html += f'  <h4>{sample}</h4>\n'
+            tbl_text = safe_read(tf)
+            if tbl_text:
+                html += f'  <div class="card"><pre>{tbl_text}</pre></div>\n'
+            else:
+                html += '  <div class="card"><p>Layer 2 RepeatMasker summary not available.</p></div>\n'
 
     html += '</section>\n'
     return html
@@ -546,8 +583,11 @@ def section_summary(samples):
         ("final_genome/", "Clean genome FASTA"),
         ("qc/quast/", "QUAST assembly assessment"),
         ("qc/busco/", "BUSCO completeness"),
-        ("repeats/", "EDTA repeat masking & library"),
-        ("annotation/", "Liftoff, Galba, TEtools annotation"),
+        ("repeats/", "EDTA + Double-Layer RepeatMasker masking & library"),
+        ("repeats/repeatmodeler/", "RepeatModeler de novo TE library"),
+        ("repeats/layer1/", "Layer 1 masking (RepeatModeler library)"),
+        ("repeats/layer2/", "Layer 2 masking (curated TE library)"),
+        ("annotation/", "Liftoff, Galba structural annotation"),
     ]
     for d, desc in dirs_info:
         html += f'    <tr><td><code>{d}</code></td><td>{desc}</td></tr>\n'
@@ -559,7 +599,7 @@ def section_summary(samples):
 
 def generate_report(samples, nanoplot_stats, quast_tsvs, busco_summaries,
                     rejected_ids, edta_summaries, liftoff_gffs, galba_gffs,
-                    annotation_stats, output_file):
+                    annotation_stats, output_file, layer2_tbls=None):
     """Assemble the full indexed HTML report."""
     html = "<!DOCTYPE html>\n<html lang='en'>\n<head>\n"
     html += "  <meta charset='UTF-8'>\n"
@@ -580,7 +620,7 @@ def generate_report(samples, nanoplot_stats, quast_tsvs, busco_summaries,
     html += section_qc(samples, nanoplot_stats, quast_tsvs, busco_summaries)
     html += section_assembly(samples)
     html += section_decontamination(samples, rejected_ids)
-    html += section_repeats(samples, edta_summaries)
+    html += section_repeats(samples, edta_summaries, layer2_tbls)
     html += section_annotation(samples, liftoff_gffs, galba_gffs, annotation_stats)
     html += section_summary(samples)
 
@@ -611,6 +651,7 @@ def main_snakemake(snakemake):
         galba_gffs=snakemake.input.galba_gffs,
         annotation_stats=snakemake.input.annotation_stats,
         output_file=snakemake.output.html,
+        layer2_tbls=snakemake.input.layer2_tbls,
     )
 
 
@@ -626,6 +667,7 @@ def main_cli():
     parser.add_argument("--liftoff-gffs", nargs="+", required=True)
     parser.add_argument("--galba-gffs", nargs="+", required=True)
     parser.add_argument("--annotation-stats", nargs="+", required=True)
+    parser.add_argument("--layer2-tbls", nargs="+", default=None)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     generate_report(
@@ -639,6 +681,7 @@ def main_cli():
         galba_gffs=args.galba_gffs,
         annotation_stats=args.annotation_stats,
         output_file=args.output,
+        layer2_tbls=args.layer2_tbls,
     )
 
 
