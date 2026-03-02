@@ -60,53 +60,90 @@ rule busco_qc:
         """
 
 # -----------------------------------------------------------------------------
-# 3. COMPREHENSIVE PIPELINE REPORT (indexed HTML)
+# 3. PER-SAMPLE STANDALONE REPORT
 # -----------------------------------------------------------------------------
-def get_report_repeat_inputs():
-    """Return the correct repeat summary inputs for the pipeline report based on config."""
+# Collects all report files into results/{sample}/report/ and generates
+# a standalone index.html that displays every pipeline section.
+# -----------------------------------------------------------------------------
+
+def get_sample_report_inputs(wildcards):
+    """Return all tracked inputs needed for the per-sample report."""
+    inputs = {
+        "nanoplot_stats":   f"results/{wildcards.sample}/qc/nanoplot/NanoStats.txt",
+        "nanoplot_report":  f"results/{wildcards.sample}/qc/nanoplot/NanoPlot-report.html",
+        "quast_report":     f"results/{wildcards.sample}/qc/quast/report.html",
+        "quast_tsv":        f"results/{wildcards.sample}/qc/quast/report.tsv",
+        "busco_summary":    f"results/{wildcards.sample}/qc/busco/short_summary.txt",
+        "rejected_ids":     f"results/{wildcards.sample}/final_genome/rejected_ids.txt",
+        "annotation_stats": f"results/{wildcards.sample}/annotation/stats.txt",
+    }
     method = config.get("repeats", {}).get("method", "edta")
     if method == "tetools":
-        return {
-            "edta_summaries": [],
-            "layer2_tbls": expand("results/{sample}/repeats/layer2/genome.masked.fa.tbl", sample=samples.index),
-        }
-    else:  # edta
-        return {
-            "edta_summaries": expand("results/{sample}/repeats/genome.fasta.mod.EDTA.TEanno.sum", sample=samples.index),
-            "layer2_tbls": [],
-        }
+        inputs["layer1_tbl"] = f"results/{wildcards.sample}/repeats/layer1/genome.fa.tbl"
+        inputs["layer2_tbl"] = f"results/{wildcards.sample}/repeats/layer2/genome.masked.fa.tbl"
+    else:
+        inputs["edta_summary"] = f"results/{wildcards.sample}/repeats/genome.fasta.mod.EDTA.TEanno.sum"
+    return inputs
 
-def get_report_annotation_inputs():
-    """Return the correct annotation GFF inputs based on config."""
-    method = config.get("annotation", {}).get("method", "both")
-    result = {"liftoff_gffs": [], "galba_gffs": []}
-    if method in ("liftoff", "both"):
-        result["liftoff_gffs"] = expand("results/{sample}/annotation/liftoff.gff3", sample=samples.index)
-    if method in ("galba", "both"):
-        result["galba_gffs"] = expand("results/{sample}/annotation/galba.gff3", sample=samples.index)
-    return result
 
-_report_repeat_inputs = get_report_repeat_inputs()
-_report_annotation_inputs = get_report_annotation_inputs()
-
-rule generate_pipeline_report:
+rule collect_and_generate_report:
     input:
-        nanoplot_stats   = expand("results/{sample}/qc/nanoplot/NanoStats.txt", sample=samples.index),
-        quast_tsvs       = expand("results/{sample}/qc/quast/report.tsv", sample=samples.index),
-        busco_summaries  = expand("results/{sample}/qc/busco/short_summary.txt", sample=samples.index),
-        rejected_ids     = expand("results/{sample}/final_genome/rejected_ids.txt", sample=samples.index),
-        edta_summaries   = _report_repeat_inputs["edta_summaries"],
-        layer2_tbls      = _report_repeat_inputs["layer2_tbls"],
-        liftoff_gffs     = _report_annotation_inputs["liftoff_gffs"],
-        galba_gffs       = _report_annotation_inputs["galba_gffs"],
-        annotation_stats = expand("results/{sample}/annotation/stats.txt", sample=samples.index),
+        unpack(get_sample_report_inputs)
     output:
-        html = "results/reports/index.html"
-    conda:
-        "../envs/quast.yaml"
+        html = "results/{sample}/report/index.html"
     params:
-        sample_names      = lambda wildcards: list(samples.index),
+        report_dir        = lambda wildcards: f"results/{wildcards.sample}/report",
         repeat_method     = config.get("repeats", {}).get("method", "edta"),
         annotation_method = config.get("annotation", {}).get("method", "both")
-    script:
-        "../scripts/generate_pipeline_report.py"
+    shell:
+        """
+        REPORT_DIR="{params.report_dir}"
+
+        # Create report subdirectories
+        mkdir -p "$REPORT_DIR/nanoplot" \
+                 "$REPORT_DIR/quast" \
+                 "$REPORT_DIR/busco" \
+                 "$REPORT_DIR/decontamination" \
+                 "$REPORT_DIR/repeats" \
+                 "$REPORT_DIR/annotation"
+
+        # --- NanoPlot (copy entire directory for HTML plot dependencies) ---
+        cp -r results/{wildcards.sample}/qc/nanoplot/* "$REPORT_DIR/nanoplot/" 2>/dev/null || true
+
+        # --- QUAST (copy entire directory for Icarus viewer dependencies) ---
+        cp -r results/{wildcards.sample}/qc/quast/* "$REPORT_DIR/quast/" 2>/dev/null || true
+
+        # --- BUSCO ---
+        cp {input.busco_summary} "$REPORT_DIR/busco/"
+
+        # --- Decontamination ---
+        cp results/{wildcards.sample}/decontamination/tiara/log_classification.txt \
+           "$REPORT_DIR/decontamination/" 2>/dev/null || true
+        cp {input.rejected_ids} "$REPORT_DIR/decontamination/"
+
+        # --- Repeats ---
+        if [ "{params.repeat_method}" = "tetools" ]; then
+            cp results/{wildcards.sample}/repeats/layer1/genome.fa.tbl \
+               "$REPORT_DIR/repeats/" 2>/dev/null || true
+            cp results/{wildcards.sample}/repeats/layer2/genome.masked.fa.tbl \
+               "$REPORT_DIR/repeats/" 2>/dev/null || true
+            # RepeatModeler log (best-effort: file is produced by RepeatModeler
+            # but not a formal Snakemake output to avoid costly re-runs)
+            cp results/{wildcards.sample}/repeats/repeatmodeler/{wildcards.sample}-rmod.log \
+               "$REPORT_DIR/repeats/repeatmodeler.log" 2>/dev/null || true
+        else
+            cp results/{wildcards.sample}/repeats/genome.fasta.mod.EDTA.TEanno.sum \
+               "$REPORT_DIR/repeats/edta_summary.txt" 2>/dev/null || true
+        fi
+
+        # --- Annotation ---
+        cp {input.annotation_stats} "$REPORT_DIR/annotation/"
+
+        # --- Generate standalone HTML report ---
+        python workflow/scripts/generate_pipeline_report.py \
+            --sample {wildcards.sample} \
+            --report-dir "$REPORT_DIR" \
+            --repeat-method {params.repeat_method} \
+            --annotation-method {params.annotation_method} \
+            --output {output.html}
+        """

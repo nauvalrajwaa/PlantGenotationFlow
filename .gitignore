@@ -1,6 +1,7 @@
 # Logs and Temporary Files
 *.log
 *.csv
+update.txt
 .gitignore
 
 # Python

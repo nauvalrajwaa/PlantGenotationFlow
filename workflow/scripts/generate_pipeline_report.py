@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """
-PlantGenotationFlow — Indexed Pipeline Report Generator
-========================================================
-Generates a single-page HTML report with sidebar navigation and multiple
-sections covering the entire pipeline: QC, Assembly, Decontamination,
-Repeats, and Annotation.
+PlantGenotationFlow — Per-Sample Standalone Report Generator
+=============================================================
+Generates a single-page HTML report per sample with sidebar navigation
+covering: NanoPlot QC, BUSCO, QUAST, Decontamination, Repeats,
+RepeatModeler, and Annotation sections.
 
-Can be called via Snakemake `script:` directive or from the command line.
+The report folder is standalone — all referenced files are relative to the
+report directory.
+
+Called from the Snakemake rule via shell directive:
+    python workflow/scripts/generate_pipeline_report.py \\
+        --sample {sample} --report-dir {report_dir} \\
+        --repeat-method {method} --annotation-method {method} \\
+        --output {output}
 """
 
 import argparse
-import base64
-import io
 import os
 import re
 import sys
@@ -30,118 +35,38 @@ def safe_read(path):
         return None
 
 
-def parse_nanoplot_stats(stats_file):
-    """Parse NanoPlot NanoStats.txt into a dict."""
-    data = {}
-    text = safe_read(stats_file)
-    if not text:
-        return data
-    for line in text.strip().splitlines():
-        parts = line.split(":")
-        if len(parts) == 2:
-            key = parts[0].strip()
-            val = parts[1].strip()
-            data[key] = val
-    return data
+def safe_read_head(path, max_lines=30):
+    """Read first N lines of a file."""
+    try:
+        with open(path, "r") as fh:
+            lines = []
+            for i, line in enumerate(fh):
+                if i >= max_lines:
+                    break
+                lines.append(line)
+            return "".join(lines)
+    except Exception:
+        return None
 
 
-def parse_quast_tsv(tsv_file):
-    """Parse QUAST report.tsv into {metric: {assembly_label: value}}."""
-    data = {}
-    text = safe_read(tsv_file)
-    if not text:
-        return data
-    lines = text.strip().splitlines()
-    if not lines:
-        return data
-    headers = lines[0].split("\t")
-    for line in lines[1:]:
-        cols = line.split("\t")
-        metric = cols[0]
-        data[metric] = {}
-        for i, col in enumerate(cols[1:], 1):
-            if i < len(headers):
-                data[metric][headers[i]] = col
-    return data
-
-
-def parse_busco_summary(summary_file):
-    """Parse BUSCO short_summary.txt → dict with C, S, D, F, M counts."""
-    result = {"C": "N/A", "S": "N/A", "D": "N/A", "F": "N/A", "M": "N/A", "Total": "N/A"}
-    text = safe_read(summary_file)
-    if not text:
-        return result
-    for line in text.splitlines():
-        line = line.strip()
-        if "Complete BUSCOs (C)" in line:
-            result["C"] = line.split("\t")[0].strip()
-        elif "Complete and single-copy BUSCOs (S)" in line:
-            result["S"] = line.split("\t")[0].strip()
-        elif "Complete and duplicated BUSCOs (D)" in line:
-            result["D"] = line.split("\t")[0].strip()
-        elif "Fragmented BUSCOs (F)" in line:
-            result["F"] = line.split("\t")[0].strip()
-        elif "Missing BUSCOs (M)" in line:
-            result["M"] = line.split("\t")[0].strip()
-        elif "Total BUSCO groups searched" in line:
-            result["Total"] = line.split("\t")[0].strip()
-    return result
-
-
-def parse_edta_summary(sum_file):
-    """Parse EDTA TEanno.sum for repeat composition."""
-    rows = []
-    text = safe_read(sum_file)
-    if not text:
-        return rows
-    capture = False
-    for line in text.splitlines():
-        if "repeat_type" in line.lower() or "Type" in line:
-            capture = True
-            continue
-        if capture and line.strip():
-            cols = line.strip().split()
-            if len(cols) >= 3:
-                rows.append({"type": cols[0], "count": cols[1], "bp": cols[2],
-                             "pct": cols[3] if len(cols) > 3 else ""})
-    return rows
-
-
-def parse_gff_stats(gff_file):
-    """Count genes & mRNAs in a GFF3 file."""
-    genes, mrnas = 0, 0
-    text = safe_read(gff_file)
-    if not text:
-        return {"genes": 0, "mrnas": 0}
-    for line in text.splitlines():
-        if line.startswith("#"):
-            continue
-        cols = line.split("\t")
-        if len(cols) < 9:
-            continue
-        if cols[2] == "gene":
-            genes += 1
-        elif cols[2] in ("mRNA", "transcript"):
-            mrnas += 1
-    return {"genes": genes, "mrnas": mrnas}
-
-
-def parse_rejected_ids(rejected_file):
-    """Count rejected contigs."""
-    text = safe_read(rejected_file)
-    if not text:
+def count_lines(path):
+    """Count total lines in a file."""
+    try:
+        with open(path, "r") as fh:
+            return sum(1 for _ in fh)
+    except Exception:
         return 0
-    return len([l for l in text.strip().splitlines() if l.strip() and not l.startswith("#")])
 
 
-def parse_annotation_stats_txt(stats_file):
-    """Read the plain-text stats.txt produced by annotation_stats rule."""
-    text = safe_read(stats_file)
-    return text if text else "No stats available."
+def html_escape(text):
+    """Basic HTML escaping."""
+    if not text:
+        return ""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # ---------------------------------------------------------------------------
-# HTML Building
+# CSS & JS
 # ---------------------------------------------------------------------------
 
 CSS = """
@@ -216,18 +141,9 @@ body {
     flex: 1;
     max-width: 1100px;
 }
-h1 {
-    font-size: 28px;
-    margin-bottom: 6px;
-}
-.subtitle {
-    color: var(--text-muted);
-    margin-bottom: 32px;
-    font-size: 14px;
-}
-section {
-    margin-bottom: 48px;
-}
+h1 { font-size: 28px; margin-bottom: 6px; }
+.subtitle { color: var(--text-muted); margin-bottom: 32px; font-size: 14px; }
+section { margin-bottom: 48px; }
 section h2 {
     font-size: 22px;
     margin-bottom: 4px;
@@ -235,11 +151,7 @@ section h2 {
     border-bottom: 2px solid var(--accent);
     display: inline-block;
 }
-section h3 {
-    font-size: 17px;
-    margin: 20px 0 10px;
-    color: var(--text-muted);
-}
+section h3 { font-size: 17px; margin: 20px 0 10px; color: var(--text-muted); }
 .card {
     background: var(--card-bg);
     border: 1px solid var(--border);
@@ -248,136 +160,138 @@ section h3 {
     margin: 14px 0;
     box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 14px;
-    margin: 10px 0;
-}
-th, td {
-    padding: 10px 14px;
-    text-align: left;
-    border-bottom: 1px solid var(--border);
-}
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 10px 0; }
+th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
 th {
-    background: #f1f5f9;
-    font-weight: 600;
-    font-size: 13px;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    color: var(--text-muted);
+    background: #f1f5f9; font-weight: 600; font-size: 13px;
+    text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-muted);
 }
 tr:hover td { background: #f8fafc; }
 .badge {
-    display: inline-block;
-    padding: 2px 10px;
-    border-radius: 12px;
-    font-size: 12px;
-    font-weight: 600;
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 12px; font-weight: 600;
 }
 .badge-success { background: #dcfce7; color: #166534; }
 .badge-warning { background: #fef9c3; color: #854d0e; }
 .badge-danger  { background: #fee2e2; color: #991b1b; }
 .badge-info    { background: #dbeafe; color: #1e40af; }
 pre {
-    background: #1e293b;
-    color: #e2e8f0;
-    padding: 16px;
-    border-radius: 8px;
-    font-size: 13px;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+    background: #1e293b; color: #e2e8f0; padding: 16px;
+    border-radius: 8px; font-size: 13px; overflow-x: auto;
+    white-space: pre-wrap; word-wrap: break-word;
+    max-height: 600px; overflow-y: auto;
 }
 .metric-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 14px;
-    margin: 14px 0;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px; margin: 14px 0;
 }
 .metric-box {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
-    text-align: center;
+    background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; text-align: center;
 }
-.metric-box .value {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--accent);
-}
-.metric-box .label {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 4px;
-}
+.metric-box .value { font-size: 28px; font-weight: 700; color: var(--accent); }
+.metric-box .label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
 .sample-tag {
-    display: inline-block;
-    background: var(--accent);
-    color: #fff;
-    padding: 3px 12px;
-    border-radius: 14px;
-    font-size: 13px;
-    font-weight: 600;
-    margin-right: 6px;
+    display: inline-block; background: var(--accent); color: #fff;
+    padding: 3px 12px; border-radius: 14px; font-size: 13px; font-weight: 600;
 }
+.link-card {
+    display: inline-block; padding: 10px 20px; margin: 6px 8px 6px 0;
+    background: var(--accent); color: #fff; text-decoration: none;
+    border-radius: 8px; font-size: 14px; font-weight: 500;
+    transition: background 0.2s;
+}
+.link-card:hover { background: #0284c7; }
+.bar-container {
+    display: flex; width: 100%; height: 40px; background-color: #e2e8f0;
+    border-radius: 6px; overflow: hidden; margin: 10px 0;
+}
+.bar-seg {
+    height: 100%; text-align: center; color: white;
+    font-size: 12px; line-height: 40px; font-weight: 600;
+}
+.c-s { background-color: #22c55e; }
+.c-d { background-color: #16a34a; }
+.frag { background-color: #f59e0b; }
+.miss { background-color: #ef4444; }
+.tab-container { margin: 14px 0; }
+.tab-buttons { display: flex; gap: 4px; margin-bottom: -1px; position: relative; z-index: 1; }
+.tab-btn {
+    padding: 8px 16px; border: 1px solid var(--border); border-bottom: none;
+    border-radius: 8px 8px 0 0; background: #f1f5f9; cursor: pointer;
+    font-size: 13px; font-weight: 500; color: var(--text-muted);
+}
+.tab-btn.active { background: var(--card-bg); color: var(--text); border-bottom: 1px solid var(--card-bg); }
+.tab-content {
+    display: none; border: 1px solid var(--border);
+    border-radius: 0 8px 8px 8px; padding: 16px; background: var(--card-bg);
+}
+.tab-content.active { display: block; }
 footer {
-    text-align: center;
-    color: var(--text-muted);
-    font-size: 12px;
-    padding: 24px 0;
-    border-top: 1px solid var(--border);
-    margin-top: 40px;
+    text-align: center; color: var(--text-muted); font-size: 12px;
+    padding: 24px 0; border-top: 1px solid var(--border); margin-top: 40px;
+}
+"""
+
+JS = """
+function openTab(evt, tabId) {
+    var container = evt.target.closest('.tab-container');
+    container.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
+    container.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.getElementById(tabId).classList.add('active');
+    evt.target.classList.add('active');
 }
 """
 
 
-def build_sidebar(samples):
+# ---------------------------------------------------------------------------
+# Section builders
+# ---------------------------------------------------------------------------
+
+def build_sidebar(sample):
     """Generate sidebar navigation HTML."""
+    nav = '<div class="sidebar">\n'
+    nav += '  <h2>&#127807; PlantGenotationFlow</h2>\n'
+    nav += f'  <div class="nav-section">Sample: {sample}</div>\n'
     links = [
         ("overview", "Overview"),
-        ("qc", "Quality Control"),
-        ("assembly", "Assembly & Polishing"),
+        ("nanoplot", "NanoPlot QC"),
+        ("busco", "BUSCO"),
+        ("quast", "QUAST"),
         ("decontamination", "Decontamination"),
         ("repeats", "Repeat Masking"),
+        ("repeatmodeler", "RepeatModeler"),
         ("annotation", "Annotation"),
-        ("summary", "Pipeline Summary"),
     ]
-    nav = '<div class="sidebar">\n'
-    nav += '  <h2>🌿 PlantGenotationFlow</h2>\n'
-    nav += '  <div class="nav-section">Navigation</div>\n'
     for href, label in links:
         nav += f'  <a href="#{href}">{label}</a>\n'
-    nav += '  <div class="nav-section">Samples</div>\n'
-    for s in samples:
-        nav += f'  <a href="#sample-{s}">{s}</a>\n'
     nav += '</div>\n'
     return nav
 
 
-def section_overview(samples):
-    """Section 0: Overview."""
+def section_overview(sample):
+    """Section: Overview."""
     html = '<section id="overview">\n'
     html += '  <h2>Overview</h2>\n'
     html += '  <div class="card">\n'
-    html += '    <p>This report summarises the <strong>PlantGenotationFlow</strong> pipeline results.</p>\n'
-    html += f'    <p><strong>Samples processed:</strong> {len(samples)} &mdash; '
-    html += " ".join(f'<span class="sample-tag">{s}</span>' for s in samples)
-    html += '</p>\n'
-    html += f'    <p><strong>Report generated:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>\n'
+    html += f'    <p>Standalone pipeline report for sample '
+    html += f'<span class="sample-tag">{sample}</span></p>\n'
+    html += f'    <p><strong>Report generated:</strong> '
+    html += f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>\n'
+    html += '    <p>This folder contains all reports needed for visualization. '
+    html += 'Open sub-reports (NanoPlot, QUAST, Icarus) by clicking their links below.</p>\n'
     html += '  </div>\n'
 
-    # Pipeline Flow
     html += '  <div class="card">\n'
-    html += '    <h3>Pipeline Steps</h3>\n'
+    html += '    <h3>Pipeline Sections</h3>\n'
     steps = [
         ("1", "Raw Read QC", "NanoPlot"),
-        ("2", "Assembly", "Flye / Hifiasm + Medaka polishing"),
-        ("3", "Decontamination", "FCS-Adaptor + Tiara"),
-        ("4", "Quality Assessment", "QUAST + BUSCO"),
-        ("5", "Repeat Masking", "EDTA"),
-        ("6", "Structural Annotation", "Liftoff + Galba + TEtools"),
+        ("2", "Genome Completeness", "BUSCO"),
+        ("3", "Assembly Assessment", "QUAST + Icarus"),
+        ("4", "Decontamination", "FCS-Adaptor + Tiara"),
+        ("5", "Repeat Masking", "RepeatMasker (Layer 1 + Layer 2)"),
+        ("6", "Repeat Modeling", "RepeatModeler (de novo TE library)"),
+        ("7", "Structural Annotation", "GALBA / Liftoff"),
     ]
     html += '    <table><tr><th>#</th><th>Step</th><th>Tools</th></tr>\n'
     for num, step, tools in steps:
@@ -388,343 +302,471 @@ def section_overview(samples):
     return html
 
 
-def section_qc(samples, nanoplot_stats_files, quast_tsv_files, busco_files):
-    """Section 1: Quality Control (NanoPlot + QUAST + BUSCO)."""
-    html = '<section id="qc">\n'
-    html += '  <h2>Quality Control</h2>\n'
+def section_nanoplot(report_dir):
+    """Section: NanoPlot raw read QC."""
+    html = '<section id="nanoplot">\n'
+    html += '  <h2>NanoPlot &mdash; Raw Read QC</h2>\n'
 
-    # --- NanoPlot ---
-    html += '  <h3>1.1 — Raw Read QC (NanoPlot)</h3>\n'
-    html += '  <div class="card"><table>\n'
-    html += '    <tr><th>Sample</th><th>Mean Read Length</th><th>Mean Read Quality</th><th>Total Bases</th><th>Number of Reads</th></tr>\n'
-    for sample, sf in zip(samples, nanoplot_stats_files):
-        stats = parse_nanoplot_stats(sf)
-        html += f'    <tr><td><strong>{sample}</strong></td>'
-        html += f'<td>{stats.get("Mean read length", "N/A")}</td>'
-        html += f'<td>{stats.get("Mean read quality", "N/A")}</td>'
-        html += f'<td>{stats.get("Total bases", "N/A")}</td>'
-        html += f'<td>{stats.get("Number of reads", "N/A")}</td></tr>\n'
-    html += '  </table></div>\n'
+    # Parse stats
+    stats_file = os.path.join(report_dir, "nanoplot", "NanoStats.txt")
+    stats_post_file = os.path.join(report_dir, "nanoplot",
+                                   "NanoStats_post_filtering.txt")
+    stats_text = safe_read(stats_file)
+    stats_post_text = safe_read(stats_post_file)
 
-    # --- QUAST ---
-    html += '  <h3>1.2 — Assembly Assessment (QUAST)</h3>\n'
-    key_metrics = ["# contigs", "Total length", "Largest contig", "N50", "L50", "GC (%)"]
-    html += '  <div class="card"><table>\n'
-    header = '<tr><th>Sample</th>'
-    for m in key_metrics:
-        header += f'<th>{m}</th>'
-    header += '</tr>\n'
-    html += f'    {header}'
-    for sample, qf in zip(samples, quast_tsv_files):
-        qdata = parse_quast_tsv(qf)
-        html += f'    <tr><td><strong>{sample}</strong></td>'
-        for m in key_metrics:
-            val = "N/A"
-            if m in qdata:
-                # prefer "Final_Cleaned" or last column
-                vals = list(qdata[m].values())
-                val = vals[-1] if vals else "N/A"
-            html += f'<td>{val}</td>'
-        html += '</tr>\n'
-    html += '  </table></div>\n'
+    if stats_text:
+        # Parse key metrics
+        metrics = {}
+        for line in stats_text.strip().splitlines():
+            parts = line.split(":")
+            if len(parts) == 2:
+                metrics[parts[0].strip()] = parts[1].strip()
 
-    # --- BUSCO ---
-    html += '  <h3>1.3 — Genome Completeness (BUSCO)</h3>\n'
-    html += '  <div class="card"><table>\n'
-    html += '    <tr><th>Sample</th><th>Complete (C)</th><th>Single (S)</th><th>Duplicated (D)</th><th>Fragmented (F)</th><th>Missing (M)</th><th>Total</th></tr>\n'
-    for sample, bf in zip(samples, busco_files):
-        bdata = parse_busco_summary(bf)
-        html += f'    <tr><td><strong>{sample}</strong></td>'
-        html += f'<td>{bdata["C"]}</td><td>{bdata["S"]}</td><td>{bdata["D"]}</td>'
-        html += f'<td>{bdata["F"]}</td><td>{bdata["M"]}</td><td>{bdata["Total"]}</td></tr>\n'
-    html += '  </table></div>\n'
+        # Display key metrics as boxes
+        key_metrics = [
+            ("Number of reads", "Total Reads"),
+            ("Total bases", "Total Bases"),
+            ("Mean read length", "Mean Length"),
+            ("Mean read quality", "Mean Quality"),
+            ("Median read length", "Median Length"),
+            ("Read length N50", "N50"),
+        ]
+        html += '  <div class="metric-grid">\n'
+        for key, label in key_metrics:
+            val = metrics.get(key, "N/A")
+            html += (f'    <div class="metric-box">'
+                     f'<div class="value">{val}</div>'
+                     f'<div class="label">{label}</div></div>\n')
+        html += '  </div>\n'
+
+    # Show full stats in tabs
+    if stats_text or stats_post_text:
+        html += '  <div class="tab-container">\n'
+        html += '    <div class="tab-buttons">\n'
+        if stats_text:
+            html += ('      <button class="tab-btn active" '
+                     'onclick="openTab(event, \'nano-pre\')">'
+                     'Pre-filtering Stats</button>\n')
+        if stats_post_text:
+            cls = "" if stats_text else " active"
+            html += (f'      <button class="tab-btn{cls}" '
+                     f'onclick="openTab(event, \'nano-post\')">'
+                     f'Post-filtering Stats</button>\n')
+        html += '    </div>\n'
+        if stats_text:
+            html += (f'    <div id="nano-pre" class="tab-content active">'
+                     f'<pre>{html_escape(stats_text)}</pre></div>\n')
+        if stats_post_text:
+            cls = "" if stats_text else " active"
+            html += (f'    <div id="nano-post" class="tab-content{cls}">'
+                     f'<pre>{html_escape(stats_post_text)}</pre></div>\n')
+        html += '  </div>\n'
+
+    # Links to NanoPlot HTML files
+    nanoplot_dir = os.path.join(report_dir, "nanoplot")
+    if os.path.isdir(nanoplot_dir):
+        html_files = sorted(
+            f for f in os.listdir(nanoplot_dir) if f.endswith(".html")
+        )
+        if html_files:
+            html += '  <h3>Interactive Reports &amp; Plots</h3>\n'
+            html += '  <div class="card">\n'
+            for f in html_files:
+                label = f.replace(".html", "").replace("_", " ")
+                html += (f'    <a class="link-card" href="nanoplot/{f}" '
+                         f'target="_blank">{label}</a>\n')
+            html += '  </div>\n'
+
+    if not stats_text and not stats_post_text:
+        html += ('  <div class="card">'
+                 '<p>NanoPlot statistics not available.</p></div>\n')
 
     html += '</section>\n'
     return html
 
 
-def section_assembly(samples):
-    """Section 2: Assembly & Polishing (informational)."""
-    html = '<section id="assembly">\n'
-    html += '  <h2>Assembly & Polishing</h2>\n'
+def section_busco(report_dir):
+    """Section: BUSCO genome completeness."""
+    html = '<section id="busco">\n'
+    html += '  <h2>BUSCO &mdash; Genome Completeness</h2>\n'
+
+    busco_file = os.path.join(report_dir, "busco", "short_summary.txt")
+    text = safe_read(busco_file)
+
+    if text:
+        # Parse BUSCO percentages for visual bar
+        match = re.search(
+            r'C:([\d.]+)%\[S:([\d.]+)%,D:([\d.]+)%\],F:([\d.]+)%,M:([\d.]+)%',
+            text,
+        )
+        if match:
+            c, s, d, f, m = [float(x) for x in match.groups()]
+
+            # Stacked bar chart
+            html += '  <div class="card">\n'
+            html += '    <h3>Completeness Overview</h3>\n'
+            html += '    <div class="bar-container">\n'
+            s_label = f"S:{s}%" if s > 3 else ""
+            d_label = f"D:{d}%" if d > 3 else ""
+            html += (f'      <div class="bar-seg c-s" style="width:{s}%;" '
+                     f'title="Single-copy: {s}%">{s_label}</div>\n')
+            html += (f'      <div class="bar-seg c-d" style="width:{d}%;" '
+                     f'title="Duplicated: {d}%">{d_label}</div>\n')
+            html += (f'      <div class="bar-seg frag" style="width:{f}%;" '
+                     f'title="Fragmented: {f}%"></div>\n')
+            html += (f'      <div class="bar-seg miss" style="width:{m}%;" '
+                     f'title="Missing: {m}%"></div>\n')
+            html += '    </div>\n'
+            html += '    <p style="font-size:13px; margin-top:8px;">\n'
+            html += f'      <span class="badge badge-success">Complete: {c}%</span> '
+            html += f'      <span class="badge badge-info">Single-copy: {s}%</span> '
+            html += f'      <span class="badge badge-info">Duplicated: {d}%</span> '
+            html += f'      <span class="badge badge-warning">Fragmented: {f}%</span> '
+            html += f'      <span class="badge badge-danger">Missing: {m}%</span>\n'
+            html += '    </p>\n'
+            html += '  </div>\n'
+
+        # Parse BUSCO counts table
+        count_rows = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if "\t" in stripped and "BUSCOs" in stripped:
+                parts = stripped.split("\t")
+                if len(parts) >= 2:
+                    count_rows.append(
+                        (parts[0].strip(), "\t".join(parts[1:]).strip())
+                    )
+            elif "Total BUSCO groups" in stripped:
+                parts = stripped.split("\t")
+                if len(parts) >= 2:
+                    count_rows.append(
+                        (parts[0].strip(), "\t".join(parts[1:]).strip())
+                    )
+
+        if count_rows:
+            html += '  <div class="card">\n'
+            html += '    <h3>BUSCO Counts</h3>\n'
+            html += '    <table><tr><th>Count</th><th>Category</th></tr>\n'
+            for cnt, cat in count_rows:
+                html += (f'      <tr><td><strong>{cnt}</strong></td>'
+                         f'<td>{cat}</td></tr>\n')
+            html += '    </table>\n'
+            html += '  </div>\n'
+
+        # Full summary text
+        html += '  <div class="card">\n'
+        html += '    <h3>Full Summary</h3>\n'
+        html += f'    <pre>{html_escape(text)}</pre>\n'
+        html += '  </div>\n'
+    else:
+        html += ('  <div class="card">'
+                 '<p>BUSCO summary not available.</p></div>\n')
+
+    html += '</section>\n'
+    return html
+
+
+def section_quast(report_dir):
+    """Section: QUAST assembly assessment."""
+    html = '<section id="quast">\n'
+    html += '  <h2>QUAST &mdash; Assembly Assessment</h2>\n'
+
+    # Parse report.tsv for inline table display
+    tsv_file = os.path.join(report_dir, "quast", "report.tsv")
+    tsv_text = safe_read(tsv_file)
+
+    if tsv_text:
+        lines = tsv_text.strip().splitlines()
+        if len(lines) > 1:
+            headers = lines[0].split("\t")
+            html += '  <div class="card">\n'
+            html += '    <h3>Assembly Statistics</h3>\n'
+            html += '    <table>\n'
+            html += ('      <tr>'
+                     + ''.join(f'<th>{html_escape(h)}</th>' for h in headers)
+                     + '</tr>\n')
+            for line in lines[1:]:
+                cols = line.split("\t")
+                html += ('      <tr>'
+                         + ''.join(f'<td>{html_escape(c)}</td>' for c in cols)
+                         + '</tr>\n')
+            html += '    </table>\n'
+            html += '  </div>\n'
+
+    # Links to HTML reports
+    html += '  <h3>Interactive Reports</h3>\n'
     html += '  <div class="card">\n'
-    html += '    <p>Assemblies were generated and polished using Medaka. '
-    html += 'Detailed per-contig statistics are available in the QUAST section above.</p>\n'
-    html += '    <table><tr><th>Sample</th><th>Assembly Path</th><th>Polished Path</th></tr>\n'
-    for s in samples:
-        html += f'    <tr><td>{s}</td>'
-        html += f'<td><code>results/{s}/assembly/</code></td>'
-        html += f'<td><code>results/{s}/medaka/consensus.fasta</code></td></tr>\n'
-    html += '    </table>\n'
+
+    quast_report = os.path.join(report_dir, "quast", "report.html")
+    icarus_report = os.path.join(report_dir, "quast", "icarus.html")
+
+    if os.path.isfile(quast_report):
+        html += ('    <a class="link-card" href="quast/report.html" '
+                 'target="_blank">&#128202; QUAST Report</a>\n')
+    if os.path.isfile(icarus_report):
+        html += ('    <a class="link-card" href="quast/icarus.html" '
+                 'target="_blank">&#128300; Icarus Viewer</a>\n')
+
+    if not os.path.isfile(quast_report) and not os.path.isfile(icarus_report):
+        html += '    <p>No interactive QUAST reports found.</p>\n'
+
     html += '  </div>\n'
     html += '</section>\n'
     return html
 
 
-def section_decontamination(samples, rejected_files):
-    """Section 3: Decontamination (FCS + Tiara)."""
+def section_decontamination(report_dir):
+    """Section: Decontamination (Tiara classification + rejected IDs)."""
     html = '<section id="decontamination">\n'
     html += '  <h2>Decontamination</h2>\n'
     html += '  <div class="card">\n'
-    html += '    <p>Adaptor/vector removal (<strong>FCS-Adaptor</strong>) followed by '
-    html += 'biological classification and filtering (<strong>Tiara</strong>). '
-    html += 'Only Eukarya + organellar contigs are retained.</p>\n'
-    html += '    <table><tr><th>Sample</th><th>Rejected Contigs</th><th>Clean Genome</th></tr>\n'
-    for s, rf in zip(samples, rejected_files):
-        n_rej = parse_rejected_ids(rf)
-        html += f'    <tr><td><strong>{s}</strong></td>'
-        html += f'<td>{n_rej}</td>'
-        html += f'<td><code>results/{s}/final_genome/final_clean.fasta</code></td></tr>\n'
-    html += '    </table>\n'
+    html += '    <p>Biological classification using <strong>Tiara</strong>. '
+    html += 'Non-eukaryotic contigs (bacteria, archaea, unknown) are filtered out. '
+    html += 'Only eukarya + organellar contigs are retained.</p>\n'
     html += '  </div>\n'
+
+    # Tiara classification log
+    log_file = os.path.join(report_dir, "decontamination",
+                            "log_classification.txt")
+    log_text = safe_read(log_file)
+    if log_text:
+        html += '  <h3>Classification Summary (Tiara)</h3>\n'
+        html += (f'  <div class="card">'
+                 f'<pre>{html_escape(log_text)}</pre></div>\n')
+
+    # Rejected IDs - show top rows + total count
+    rejected_file = os.path.join(report_dir, "decontamination",
+                                 "rejected_ids.txt")
+    total = count_lines(rejected_file)
+    if total > 0:
+        rejected_head = safe_read_head(rejected_file, 30)
+        html += (f'  <h3>Rejected Contigs '
+                 f'<span class="badge badge-danger">{total} total</span>'
+                 f'</h3>\n')
+        if rejected_head:
+            # Try to show as table (TSV format)
+            lines = rejected_head.strip().splitlines()
+            if lines and "\t" in lines[0]:
+                headers = lines[0].split("\t")
+                html += '  <div class="card">\n'
+                html += (f'    <p><em>Showing first 30 entries '
+                         f'of {total}</em></p>\n')
+                html += '    <table>\n'
+                html += ('      <tr>'
+                         + ''.join(f'<th>{html_escape(h)}</th>'
+                                   for h in headers)
+                         + '</tr>\n')
+                for line in lines[1:]:
+                    cols = line.split("\t")
+                    html += ('      <tr>'
+                             + ''.join(f'<td>{html_escape(c)}</td>'
+                                       for c in cols)
+                             + '</tr>\n')
+                html += '    </table>\n'
+                html += '  </div>\n'
+            else:
+                html += (f'  <div class="card">'
+                         f'<pre>{html_escape(rejected_head)}</pre></div>\n')
+    else:
+        html += ('  <div class="card">'
+                 '<p>No rejected contigs data available.</p></div>\n')
+
     html += '</section>\n'
     return html
 
 
-def parse_repeatmasker_tbl(tbl_file):
-    """Parse RepeatMasker .tbl summary into a list of dicts."""
-    rows = []
-    text = safe_read(tbl_file)
-    if not text:
-        return rows
-    capture = False
-    for line in text.splitlines():
-        # Start capturing after the dashed separator line
-        if line.strip().startswith("---"):
-            capture = True
-            continue
-        if capture and line.strip():
-            cols = line.strip().split()
-            if len(cols) >= 3 and not cols[0].startswith("="):
-                rows.append({
-                    "type": cols[0],
-                    "count": cols[1] if len(cols) > 1 else "",
-                    "bp": cols[2] if len(cols) > 2 else "",
-                    "pct": cols[3] if len(cols) > 3 else "",
-                })
-    return rows
-
-
-def section_repeats(samples, edta_summary_files=None, layer2_tbl_files=None, repeat_method="edta"):
-    """Section 4: Repeat Masking (EDTA or Double-Layer RepeatMasker)."""
+def section_repeats(report_dir, repeat_method):
+    """Section: Repeat Masking (Layer 1 + Layer 2 or EDTA)."""
     html = '<section id="repeats">\n'
     html += '  <h2>Repeat Masking</h2>\n'
-    html += f'  <div class="card"><p><strong>Method used:</strong> '
-    html += f'<span class="badge badge-info">{repeat_method.upper()}</span></p></div>\n'
+    html += (f'  <div class="card"><p><strong>Method:</strong> '
+             f'<span class="badge badge-info">'
+             f'{repeat_method.upper()}</span></p></div>\n')
 
-    if repeat_method == "edta" and edta_summary_files:
-        # --- EDTA ---
-        html += '  <h3>EDTA (de novo TE annotation)</h3>\n'
-        for sample, sf in zip(samples, edta_summary_files):
-            html += f'  <h4 id="sample-{sample}">{sample}</h4>\n'
-            rows = parse_edta_summary(sf)
-            if rows:
-                html += '  <div class="card"><table>\n'
-                html += '    <tr><th>Repeat Type</th><th>Count</th><th>Length (bp)</th><th>% of Genome</th></tr>\n'
-                for r in rows:
-                    html += f'    <tr><td>{r["type"]}</td><td>{r["count"]}</td><td>{r["bp"]}</td><td>{r["pct"]}</td></tr>\n'
-                html += '  </table></div>\n'
-            else:
-                html += '  <div class="card"><p>EDTA summary not available or could not be parsed.</p></div>\n'
+    if repeat_method == "tetools":
+        # Layer 1 — RepeatModeler de novo library
+        layer1_file = os.path.join(report_dir, "repeats", "genome.fa.tbl")
+        layer1_text = safe_read(layer1_file)
+        if layer1_text:
+            html += ('  <h3>Layer 1 &mdash; '
+                     'RepeatModeler Library (de novo)</h3>\n')
+            html += '  <div class="card">\n'
+            html += ('    <p>Masking with de novo TE library '
+                     'built by RepeatModeler.</p>\n')
+            html += f'    <pre>{html_escape(layer1_text)}</pre>\n'
+            html += '  </div>\n'
 
-    elif repeat_method == "tetools" and layer2_tbl_files:
-        # --- Double-Layer RepeatMasker ---
-        html += '  <h3>Double-Layer RepeatMasker</h3>\n'
-        html += '  <div class="card"><p>Layer 1: RepeatModeler (de novo TE library) &rarr; RepeatMasker<br>'
-        html += '  Layer 2: Curated TE library &rarr; RepeatMasker (soft-masking)</p></div>\n'
-        for sample, tf in zip(samples, layer2_tbl_files):
-            html += f'  <h4 id="sample-{sample}">{sample} — Layer 2 Summary</h4>\n'
-            tbl_text = safe_read(tf)
-            if tbl_text:
-                html += f'  <div class="card"><pre>{tbl_text}</pre></div>\n'
-            else:
-                html += '  <div class="card"><p>Layer 2 RepeatMasker summary not available.</p></div>\n'
+        # Layer 2 — Curated TE library
+        layer2_file = os.path.join(report_dir, "repeats",
+                                   "genome.masked.fa.tbl")
+        layer2_text = safe_read(layer2_file)
+        if layer2_text:
+            html += '  <h3>Layer 2 &mdash; Curated TE Library</h3>\n'
+            html += '  <div class="card">\n'
+            html += ('    <p>Additional masking with curated TE library '
+                     'on the Layer 1 masked genome.</p>\n')
+            html += f'    <pre>{html_escape(layer2_text)}</pre>\n'
+            html += '  </div>\n'
+
+        if not layer1_text and not layer2_text:
+            html += ('  <div class="card"><p>RepeatMasker summary '
+                     'tables not available.</p></div>\n')
+    else:
+        # EDTA summary
+        edta_file = os.path.join(report_dir, "repeats", "edta_summary.txt")
+        edta_text = safe_read(edta_file)
+        if edta_text:
+            html += '  <h3>EDTA Summary</h3>\n'
+            html += (f'  <div class="card">'
+                     f'<pre>{html_escape(edta_text)}</pre></div>\n')
+        else:
+            html += ('  <div class="card">'
+                     '<p>EDTA summary not available.</p></div>\n')
 
     html += '</section>\n'
     return html
 
 
-def section_annotation(samples, liftoff_files=None, galba_files=None,
-                       stats_files=None, annotation_method="both"):
-    """Section 5: Annotation (Liftoff and/or Galba + stats)."""
+def section_repeatmodeler(report_dir):
+    """Section: RepeatModeler log."""
+    html = '<section id="repeatmodeler">\n'
+    html += '  <h2>RepeatModeler</h2>\n'
+    html += '  <div class="card">\n'
+    html += ('    <p>De novo transposable element library construction '
+             'using RepeatModeler.</p>\n')
+    html += '  </div>\n'
+
+    log_file = os.path.join(report_dir, "repeats", "repeatmodeler.log")
+    log_text = safe_read(log_file)
+    if log_text:
+        html += '  <div class="card">\n'
+        html += '    <h3>RepeatModeler Run Log</h3>\n'
+        html += f'    <pre>{html_escape(log_text)}</pre>\n'
+        html += '  </div>\n'
+    else:
+        html += ('  <div class="card">'
+                 '<p>RepeatModeler log not available.</p></div>\n')
+
+    html += '</section>\n'
+    return html
+
+
+def section_annotation(report_dir, annotation_method):
+    """Section: Structural Annotation."""
     html = '<section id="annotation">\n'
     html += '  <h2>Structural Annotation</h2>\n'
-    html += f'  <div class="card"><p><strong>Method:</strong> '
-    html += f'<span class="badge badge-info">{annotation_method.upper()}</span></p></div>\n'
+    html += (f'  <div class="card"><p><strong>Method:</strong> '
+             f'<span class="badge badge-info">'
+             f'{annotation_method.upper()}</span></p></div>\n')
 
-    # Comparison table
-    html += '  <h3>Gene Count Summary</h3>\n'
-    html += '  <div class="card"><table>\n'
+    stats_file = os.path.join(report_dir, "annotation", "stats.txt")
+    stats_text = safe_read(stats_file)
 
-    # Build header
-    header = '<tr><th>Sample</th>'
-    if annotation_method in ("liftoff", "both") and liftoff_files:
-        header += '<th>Liftoff Genes</th><th>Liftoff mRNAs</th>'
-    if annotation_method in ("galba", "both") and galba_files:
-        header += '<th>Galba Genes</th><th>Galba mRNAs</th>'
-    header += '</tr>\n'
-    html += f'    {header}'
+    if stats_text:
+        # Try to extract gene count for a metric box
+        gene_count = None
+        prev_line = ""
+        for line in stats_text.splitlines():
+            stripped = line.strip()
+            # Look for a number after "Gene Count" header
+            if stripped.isdigit() and "Gene Count" in prev_line:
+                gene_count = stripped
+                break
+            match = re.search(r'Gene Count[:\s]+(\d+)',
+                              stripped, re.IGNORECASE)
+            if match:
+                gene_count = match.group(1)
+                break
+            prev_line = stripped
 
-    # Build rows
-    n = len(samples)
-    for i, sample in enumerate(samples):
-        html += f'    <tr><td><strong>{sample}</strong></td>'
-        if annotation_method in ("liftoff", "both") and liftoff_files and i < len(liftoff_files):
-            ls = parse_gff_stats(liftoff_files[i])
-            html += f'<td>{ls["genes"]}</td><td>{ls["mrnas"]}</td>'
-        if annotation_method in ("galba", "both") and galba_files and i < len(galba_files):
-            gs = parse_gff_stats(galba_files[i])
-            html += f'<td>{gs["genes"]}</td><td>{gs["mrnas"]}</td>'
-        html += '</tr>\n'
-    html += '  </table></div>\n'
+        if gene_count:
+            html += '  <div class="metric-grid">\n'
+            html += (f'    <div class="metric-box">'
+                     f'<div class="value">{gene_count}</div>'
+                     f'<div class="label">Predicted Genes</div></div>\n')
+            html += '  </div>\n'
 
-    # Per-sample stats
-    if stats_files:
-        html += '  <h3>Detailed Stats per Sample</h3>\n'
-        for sample, sf in zip(samples, stats_files):
-            text = parse_annotation_stats_txt(sf)
-            html += f'  <div class="card"><h4>{sample}</h4><pre>{text}</pre></div>\n'
+        html += '  <div class="card">\n'
+        html += '    <h3>Annotation Statistics</h3>\n'
+        html += f'    <pre>{html_escape(stats_text)}</pre>\n'
+        html += '  </div>\n'
+    else:
+        html += ('  <div class="card">'
+                 '<p>Annotation statistics not available.</p></div>\n')
 
     html += '</section>\n'
     return html
 
-    html += '</section>\n'
-    return html
 
+# ---------------------------------------------------------------------------
+# Report assembly
+# ---------------------------------------------------------------------------
 
-def section_summary(samples):
-    """Section 6: Pipeline Summary footer."""
-    html = '<section id="summary">\n'
-    html += '  <h2>Pipeline Summary</h2>\n'
-    html += '  <div class="card">\n'
-    html += '    <p>All files for each sample are stored under <code>results/&lt;sample&gt;/</code>:</p>\n'
-    html += '    <table><tr><th>Subdirectory</th><th>Contents</th></tr>\n'
-    dirs_info = [
-        ("qc/nanoplot/", "NanoPlot raw read QC"),
-        ("assembly/", "Raw assembly (Flye/Hifiasm)"),
-        ("medaka/", "Polished consensus"),
-        ("decontamination/fcs/", "FCS adaptor screening & cleaning"),
-        ("decontamination/tiara/", "Tiara classification"),
-        ("final_genome/", "Clean genome FASTA"),
-        ("qc/quast/", "QUAST assembly assessment"),
-        ("qc/busco/", "BUSCO completeness"),
-        ("repeats/", "Repeat masking (EDTA or TEtools double-layer)"),
-        ("annotation/", "Liftoff, Galba structural annotation"),
-    ]
-    for d, desc in dirs_info:
-        html += f'    <tr><td><code>{d}</code></td><td>{desc}</td></tr>\n'
-    html += '    </table>\n'
-    html += '  </div>\n'
-    html += '</section>\n'
-    return html
-
-
-def generate_report(samples, nanoplot_stats, quast_tsvs, busco_summaries,
-                    rejected_ids, edta_summaries, liftoff_gffs, galba_gffs,
-                    annotation_stats, output_file, layer2_tbls=None,
-                    repeat_method="edta", annotation_method="both"):
-    """Assemble the full indexed HTML report."""
+def generate_report(sample, report_dir, repeat_method,
+                    annotation_method, output_file):
+    """Assemble the full standalone per-sample HTML report."""
     html = "<!DOCTYPE html>\n<html lang='en'>\n<head>\n"
     html += "  <meta charset='UTF-8'>\n"
-    html += "  <meta name='viewport' content='width=device-width, initial-scale=1.0'>\n"
-    html += "  <title>PlantGenotationFlow Report</title>\n"
+    html += ("  <meta name='viewport' "
+             "content='width=device-width, initial-scale=1.0'>\n")
+    html += f"  <title>PlantGenotationFlow &mdash; {sample}</title>\n"
     html += f"  <style>{CSS}</style>\n"
+    html += f"  <script>{JS}</script>\n"
     html += "</head>\n<body>\n"
 
     # Sidebar
-    html += build_sidebar(samples)
+    html += build_sidebar(sample)
 
     # Main content
     html += '<div class="main">\n'
-    html += '  <h1>PlantGenotationFlow Report</h1>\n'
-    html += f'  <p class="subtitle">Generated {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>\n'
+    html += f'  <h1>PlantGenotationFlow &mdash; {sample}</h1>\n'
+    html += (f'  <p class="subtitle">Generated '
+             f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>\n')
 
-    html += section_overview(samples)
-    html += section_qc(samples, nanoplot_stats, quast_tsvs, busco_summaries)
-    html += section_assembly(samples)
-    html += section_decontamination(samples, rejected_ids)
-    html += section_repeats(samples, edta_summaries, layer2_tbls, repeat_method)
-    html += section_annotation(samples, liftoff_gffs or None, galba_gffs or None,
-                               annotation_stats, annotation_method)
-    html += section_summary(samples)
+    html += section_overview(sample)
+    html += section_nanoplot(report_dir)
+    html += section_busco(report_dir)
+    html += section_quast(report_dir)
+    html += section_decontamination(report_dir)
+    html += section_repeats(report_dir, repeat_method)
+    html += section_repeatmodeler(report_dir)
+    html += section_annotation(report_dir, annotation_method)
 
-    html += '<footer>PlantGenotationFlow &mdash; Genome Annotation Pipeline Report</footer>\n'
+    html += ('<footer>PlantGenotationFlow &mdash; '
+             'Genome Annotation Pipeline Report</footer>\n')
     html += '</div>\n</body>\n</html>\n'
 
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
     with open(output_file, "w") as fh:
         fh.write(html)
-    print(f"Report written to {output_file}")
+    print(f"[generate_pipeline_report] Report written to {output_file}")
 
 
 # ---------------------------------------------------------------------------
-# Entry points
+# Entry point
 # ---------------------------------------------------------------------------
 
-def main_snakemake(snakemake):
-    """Called when invoked via Snakemake `script:` directive."""
-    samples = snakemake.params.sample_names
-    repeat_method = snakemake.params.get("repeat_method", "edta")
-    annotation_method = snakemake.params.get("annotation_method", "both")
-    # Handle empty lists as None for optional inputs
-    edta_sums = list(snakemake.input.edta_summaries) or None
-    l2_tbls = list(snakemake.input.layer2_tbls) or None
-    liftoff = list(snakemake.input.liftoff_gffs) or None
-    galba = list(snakemake.input.galba_gffs) or None
-    generate_report(
-        samples=samples,
-        nanoplot_stats=snakemake.input.nanoplot_stats,
-        quast_tsvs=snakemake.input.quast_tsvs,
-        busco_summaries=snakemake.input.busco_summaries,
-        rejected_ids=snakemake.input.rejected_ids,
-        edta_summaries=edta_sums,
-        liftoff_gffs=liftoff,
-        galba_gffs=galba,
-        annotation_stats=snakemake.input.annotation_stats,
-        output_file=snakemake.output.html,
-        layer2_tbls=l2_tbls,
-        repeat_method=repeat_method,
-        annotation_method=annotation_method,
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate per-sample standalone PlantGenotationFlow report"
     )
-
-
-def main_cli():
-    """Command-line interface."""
-    parser = argparse.ArgumentParser(description="Generate PlantGenotationFlow HTML report")
-    parser.add_argument("--samples", nargs="+", required=True)
-    parser.add_argument("--nanoplot-stats", nargs="+", required=True)
-    parser.add_argument("--quast-tsvs", nargs="+", required=True)
-    parser.add_argument("--busco-summaries", nargs="+", required=True)
-    parser.add_argument("--rejected-ids", nargs="+", required=True)
-    parser.add_argument("--edta-summaries", nargs="+", required=True)
-    parser.add_argument("--liftoff-gffs", nargs="+", required=True)
-    parser.add_argument("--galba-gffs", nargs="+", required=True)
-    parser.add_argument("--annotation-stats", nargs="+", required=True)
-    parser.add_argument("--layer2-tbls", nargs="+", default=None)
-    parser.add_argument("--repeat-method", default="edta", choices=["edta", "tetools"])
-    parser.add_argument("--annotation-method", default="both", choices=["liftoff", "galba", "both"])
-    parser.add_argument("--output", required=True)
+    parser.add_argument("--sample", required=True, help="Sample name")
+    parser.add_argument("--report-dir", required=True,
+                        help="Report directory with collected files")
+    parser.add_argument("--repeat-method", default="edta",
+                        choices=["edta", "tetools"])
+    parser.add_argument("--annotation-method", default="both",
+                        choices=["liftoff", "galba", "both"])
+    parser.add_argument("--output", required=True, help="Output HTML path")
     args = parser.parse_args()
     generate_report(
-        samples=args.samples,
-        nanoplot_stats=args.nanoplot_stats,
-        quast_tsvs=args.quast_tsvs,
-        busco_summaries=args.busco_summaries,
-        rejected_ids=args.rejected_ids,
-        edta_summaries=args.edta_summaries,
-        liftoff_gffs=args.liftoff_gffs,
-        galba_gffs=args.galba_gffs,
-        annotation_stats=args.annotation_stats,
-        output_file=args.output,
-        layer2_tbls=args.layer2_tbls,
+        sample=args.sample,
+        report_dir=args.report_dir,
         repeat_method=args.repeat_method,
         annotation_method=args.annotation_method,
+        output_file=args.output,
     )
 
 
-# Snakemake script directive auto-injects `snakemake` into global scope
-try:
-    main_snakemake(snakemake)  # noqa: F821
-except NameError:
-    if __name__ == "__main__":
-        main_cli()
+if __name__ == "__main__":
+    main()

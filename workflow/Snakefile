@@ -65,8 +65,8 @@ rule all:
         # 4. Annotation (conditional: liftoff, galba, or both)
         get_annotation_targets(),
 
-        # 5. Final Pipeline Report (indexed HTML)
-        "results/reports/index.html"
+        # 5. Per-sample Standalone Report (HTML + collected files)
+        expand("results/{sample}/report/index.html", sample=samples.index)
 
 # Load Rules
 include: "rules/00_qc.smk"
