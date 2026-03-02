@@ -28,7 +28,7 @@ annotation:
   #   - "galba"   : Hanya GALBA (Protein-based, ab initio dengan Augustus)
   #   - "both"    : Menjalankan keduanya (Liftoff + GALBA)
   # GALBA otomatis menggunakan soft-masked genome dari repeat masking yang dipilih.
-  method: "both"
+  method: "galba"
 
 # -----------------------------------------------------------------------------
 # 4. REPEAT MASKING
@@ -52,7 +52,7 @@ tetools:
   species: "viridiplantae"
   
   # Jumlah CPU thread untuk RepeatModeler/RepeatMasker container
-  threads: 8
+  threads: 64
   # Path ke curated TE library untuk Layer 2 masking.
   # Jika kosong/terhapus, pipeline akan fallback ke resources/TE_Library_Prep/final_curated_lib.fa
   te_lib: "resources/TE_Library_Prep/final_curated_lib.fa"

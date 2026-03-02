@@ -21,6 +21,8 @@ intermediate_files/
 .cache/
 .config/
 .keras/
+.pygustus/
+busco_downloads/
 
 # Optional: Resources (if large files downloaded here)
 # resources/

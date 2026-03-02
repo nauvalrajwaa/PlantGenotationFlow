@@ -1,9 +1,42 @@
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def get_masked_genome(wildcards):
+    repeat_method = config.get("repeats", {}).get("method", "edta")
+    if repeat_method == "edta":
+        return f"results/{wildcards.sample}/repeats/genome.fasta.mod.MAKER.masked"
+    elif repeat_method == "tetools":
+        return f"results/{wildcards.sample}/repeats/layer2/genome.final_masked.fa"
+    else:
+        # Fallback jika tidak ada repeat masking
+        return f"results/{wildcards.sample}/final_genome/final_clean.fasta"
+
+def get_repeat_summary(wildcards):
+    repeat_method = config.get("repeats", {}).get("method", "edta")
+    if repeat_method == "edta":
+        return f"results/{wildcards.sample}/repeats/genome.fasta.mod.EDTA.TEanno.sum"
+    elif repeat_method == "tetools":
+        return f"results/{wildcards.sample}/repeats/layer2/genome.masked.fa.tbl"
+    else:
+        return []
+
+def get_annotation_stats_inputs(wildcards):
+    method = config.get("annotation", {}).get("method", "both")
+    inputs = {"repeat_summary": get_repeat_summary(wildcards)}
+    
+    if method in ("liftoff", "both"):
+        inputs["liftoff"] = f"results/{wildcards.sample}/annotation/liftoff.gff3"
+    if method in ("galba", "both"):
+        inputs["galba"] = f"results/{wildcards.sample}/annotation/galba.gff3"
+        
+    return inputs
+
 # -----------------------------------------------------------------------------
 # 1. LIFTOFF (Metode Utama - DNA Based)
 # -----------------------------------------------------------------------------
 rule liftoff_annotation:
     input:
-        # Mengambil input dari hasil bersih Tiara
         target    = "results/{sample}/final_genome/final_clean.fasta",
         ref_fasta = config["refs"]["genome"],
         ref_gff   = config["refs"]["gff"]
@@ -36,8 +69,6 @@ rule liftoff_annotation:
 # -----------------------------------------------------------------------------
 rule galba_annotation:
     input:
-        # Menggunakan soft-masked genome dari repeat masking (EDTA atau TEtools layer2)
-        # agar Augustus/GALBA dapat mengenali region repeat (best practice)
         target   = get_masked_genome,
         ref_prot = config["refs"]["protein"]
     output:
@@ -45,37 +76,58 @@ rule galba_annotation:
     container:
         "docker://katharinahoff/galba-notebook:latest"
     threads: 32
+    params:
+        workdir = "results/{sample}/annotation/galba_out"
     shell:
         """
-        # Setup folder config sementara untuk Augustus agar writable
-        export AUGUSTUS_CONFIG_PATH="results/{wildcards.sample}/annotation/augustus_config"
-        mkdir -p $AUGUSTUS_CONFIG_PATH
-        cp -r /usr/share/augustus/config/* $AUGUSTUS_CONFIG_PATH/
+        # --- 1. SETUP WRITABLE AUGUSTUS CONFIG ---
+        if [ -n "${{AUGUSTUS_CONFIG_PATH:-}}" ] && [ -d "$AUGUSTUS_CONFIG_PATH" ]; then
+            ORIGINAL_CONFIG="$AUGUSTUS_CONFIG_PATH"
+        elif [ -d "/opt/Augustus/config" ]; then
+            ORIGINAL_CONFIG="/opt/Augustus/config"
+        elif [ -d "/usr/share/augustus/config" ]; then
+            ORIGINAL_CONFIG="/usr/share/augustus/config"
+        else
+            echo "FATAL: Direktori config Augustus tidak ditemukan di dalam container!" >&2
+            exit 1
+        fi
         
-        # Jalankan Galba
+        # GUNAKAN $PWD AGAR MENJADI ABSOLUTE PATH
+        export AUGUSTUS_CONFIG_PATH="$PWD/results/{wildcards.sample}/annotation/augustus_config"
+        
+        # Buat foldernya dan copy isi config bawaan container
+        mkdir -p $AUGUSTUS_CONFIG_PATH
+        cp -r $ORIGINAL_CONFIG/* $AUGUSTUS_CONFIG_PATH/
+        
+        # Pastikan direktori spesies benar-benar tercopy
+        if [ ! -d "$AUGUSTUS_CONFIG_PATH/species" ]; then
+            echo "FATAL: Folder species gagal di-copy ke $AUGUSTUS_CONFIG_PATH" >&2
+            exit 1
+        fi
+        
+        # --- 2. JALANKAN GALBA ---
+        rm -rf {params.workdir}
+        
         galba.pl --genome={input.target} \
                  --prot_seq={input.ref_prot} \
                  --threads {threads} \
-                 --gff3={output.gff}
+                 --workingdir={params.workdir}
                  
-        # Cleanup
+        # --- 3. RAPIKAN OUTPUT ---
+        if [ -f "{params.workdir}/galba.gtf" ]; then
+            cp {params.workdir}/galba.gtf {output.gff}
+        else
+            echo "FATAL: Galba selesai tetapi file galba.gtf tidak ditemukan di {params.workdir}." >&2
+            exit 1
+        fi
+                 
+        # Bersihkan config sementara untuk menghemat ruang
         rm -rf $AUGUSTUS_CONFIG_PATH
         """
 
 # -----------------------------------------------------------------------------
 # 3. Summary Stats
 # -----------------------------------------------------------------------------
-
-# Helper: build annotation_stats inputs based on annotation method
-def get_annotation_stats_inputs(wildcards):
-    method = config.get("annotation", {}).get("method", "both")
-    inputs = {"repeat_summary": get_repeat_summary(wildcards)}
-    if method in ("liftoff", "both"):
-        inputs["liftoff"] = f"results/{wildcards.sample}/annotation/liftoff.gff3"
-    if method in ("galba", "both"):
-        inputs["galba"] = f"results/{wildcards.sample}/annotation/galba.gff3"
-    return inputs
-
 rule annotation_stats:
     input:
         unpack(get_annotation_stats_inputs)
@@ -84,28 +136,32 @@ rule annotation_stats:
     params:
         repeat_method     = config.get("repeats", {}).get("method", "edta"),
         annotation_method = config.get("annotation", {}).get("method", "both")
-    shell:
-        """
-        echo "Annotation Statistics for {wildcards.sample}" > {output.summary}
-        echo "-------------------------------------------" >> {output.summary}
-        echo "Annotation method: {params.annotation_method}" >> {output.summary}
-        echo "" >> {output.summary}
+    run:
+        import subprocess
 
-        if [ "{params.annotation_method}" = "liftoff" ] || [ "{params.annotation_method}" = "both" ]; then
-            echo "[LIFTOFF] Gene Count:" >> {output.summary}
-            awk '$3 == "gene"' {input.liftoff} | wc -l >> {output.summary}
-            echo "" >> {output.summary}
-        fi
+        with open(output.summary, "w") as out:
+            out.write(f"Annotation Statistics for {wildcards.sample}\n")
+            out.write("-------------------------------------------\n")
+            out.write(f"Annotation method: {params.annotation_method}\n\n")
 
-        if [ "{params.annotation_method}" = "galba" ] || [ "{params.annotation_method}" = "both" ]; then
-            echo "[GALBA] Gene Count:" >> {output.summary}
-            awk '$3 == "gene"' {input.galba} | wc -l >> {output.summary}
-            echo "" >> {output.summary}
-        fi
+            if params.annotation_method in ("liftoff", "both") and hasattr(input, "liftoff"):
+                out.write("[LIFTOFF] Gene Count:\n")
+                cmd = f"awk '$3 == \"gene\"' {input.liftoff} | wc -l"
+                res = subprocess.check_output(cmd, shell=True).decode("utf-8").strip()
+                out.write(f"{res}\n\n")
 
-        echo "[REPEAT MASKING] Method: {params.repeat_method}" >> {output.summary}
-        cat {input.repeat_summary} >> {output.summary}
-        """
+            if params.annotation_method in ("galba", "both") and hasattr(input, "galba"):
+                out.write("[GALBA] Gene Count:\n")
+                cmd = f"awk '$3 == \"gene\"' {input.galba} | wc -l"
+                res = subprocess.check_output(cmd, shell=True).decode("utf-8").strip()
+                out.write(f"{res}\n\n")
+
+            out.write(f"[REPEAT MASKING] Method: {params.repeat_method}\n")
+            if hasattr(input, "repeat_summary") and input.repeat_summary:
+                # Amankan jika input.repeat_summary berupa list berukuran 1
+                rep_file = input.repeat_summary[0] if isinstance(input.repeat_summary, list) else input.repeat_summary
+                with open(rep_file, "r") as rep:
+                    out.write(rep.read())
 
 # (Report generation is now handled by the unified generate_pipeline_report rule
 #  in 02_assessment.smk → results/reports/index.html)
